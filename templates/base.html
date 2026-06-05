@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Fantasy Baseball 2025{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{{ url_for('index') }}">⚾ Diamond<span>DB</span></a>
+  <nav>
+    <a href="{{ url_for('index') }}">Home</a>
+    <a href="{{ url_for('hitters') }}">Hitters</a>
+    <a href="{{ url_for('pitchers') }}">Pitchers</a>
+  </nav>
+  <form class="search" action="{{ url_for('hitters') }}" method="get">
+    <input type="text" name="q" placeholder="Search player…" value="{{ request.args.get('q','') }}">
+  </form>
+</header>
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="statusbar">
+  2025 MLB season · {{ status.hitters }} hitters · {{ status.pitchers }} pitchers ·
+  {{ status.games }} games loaded ·
+  {{ status.batting_games }} batting / {{ status.pitching_games }} pitching game-logs ·
+  {{ status.statcast }} Statcast profiles
+  <span class="src">Data: MLB Stats API + Baseball Savant</span>
+</footer>
+</body>
+</html>

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}{{ p['full_name'] }} — 2025{% endblock %}
+
+{% block content %}
+<div class="player-head">
+  <h1>{{ p['full_name'] }}</h1>
+  <div class="bio">
+    {% if p['position'] %}<span>{{ p['position'] }}</span>{% endif %}
+    {% if p['team_name'] %}<span>{{ p['team_name'] }}</span>{% endif %}
+    {% if p['bat_side'] %}<span>Bats: {{ p['bat_side'] }}</span>{% endif %}
+    {% if p['pitch_hand'] %}<span>Throws: {{ p['pitch_hand'] }}</span>{% endif %}
+    {% if p['birth_date'] %}<span>b. {{ p['birth_date'] }}</span>{% endif %}
+  </div>
+</div>
+
+{% if bat %}
+<section class="panel">
+  <h2>Batting — 2025 season</h2>
+  <table class="stats line">
+    <thead><tr>
+      <th class="num">G</th><th class="num">PA</th><th class="num">AB</th><th class="num">R</th>
+      <th class="num">H</th><th class="num">2B</th><th class="num">3B</th><th class="num">HR</th>
+      <th class="num">RBI</th><th class="num">SB</th><th class="num">BB</th><th class="num">SO</th>
+      <th class="num">AVG</th><th class="num">OBP</th><th class="num">SLG</th><th class="num">OPS</th>
+    </tr></thead>
+    <tbody><tr>
+      <td>{{ bat['g'] }}</td><td>{{ bat['pa'] }}</td><td>{{ bat['ab'] }}</td><td>{{ bat['r'] }}</td>
+      <td>{{ bat['h'] }}</td><td>{{ bat['doubles'] }}</td><td>{{ bat['triples'] }}</td>
+      <td class="hl">{{ bat['hr'] }}</td><td>{{ bat['rbi'] }}</td><td>{{ bat['sb'] }}</td>
+      <td>{{ bat['bb'] }}</td><td>{{ bat['so'] }}</td>
+      <td>{{ '%.3f'|format(bat['avg']) if bat['avg'] is not none else '—' }}</td>
+      <td>{{ '%.3f'|format(bat['obp']) if bat['obp'] is not none else '—' }}</td>
+      <td>{{ '%.3f'|format(bat['slg']) if bat['slg'] is not none else '—' }}</td>
+      <td class="hl">{{ '%.3f'|format(bat['ops']) if bat['ops'] is not none else '—' }}</td>
+    </tr></tbody>
+  </table>
+  {% if statcast %}
+  <div class="statcast-strip">
+    <div><b>{{ statcast['avg_ev'] }}</b><span>Avg EV (mph)</span></div>
+    <div><b>{{ statcast['max_ev'] }}</b><span>Max EV</span></div>
+    <div><b>{{ statcast['barrel_pct'] }}%</b><span>Barrel</span></div>
+    <div><b>{{ statcast['hard_hit_pct'] }}%</b><span>Hard-Hit</span></div>
+    <div><b>{{ '%.3f'|format(statcast['xwoba']) if statcast['xwoba'] is not none else '—' }}</b><span>xwOBA</span></div>
+    <div><b>{{ statcast['bbe'] }}</b><span>Batted Balls</span></div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if pit %}
+<section class="panel">
+  <h2>Pitching — 2025 season</h2>
+  <table class="stats line">
+    <thead><tr>
+      <th class="num">G</th><th class="num">GS</th><th class="num">W</th><th class="num">L</th>
+      <th class="num">SV</th><th class="num">HLD</th><th class="num">IP</th><th class="num">H</th>
+      <th class="num">HR</th><th class="num">BB</th><th class="num">SO</th><th class="num">ERA</th>
+      <th class="num">WHIP</th><th class="num">K/9</th>
+    </tr></thead>
+    <tbody><tr>
+      <td>{{ pit['g'] }}</td><td>{{ pit['gs'] }}</td><td class="hl">{{ pit['w'] }}</td>
+      <td>{{ pit['l'] }}</td><td class="hl">{{ pit['sv'] }}</td><td>{{ pit['hld'] }}</td>
+      <td>{{ ip_str(pit['outs']) }}</td><td>{{ pit['h'] }}</td><td>{{ pit['hr'] }}</td>
+      <td>{{ pit['bb'] }}</td><td class="hl">{{ pit['so'] }}</td>
+      <td class="hl">{{ '%.2f'|format(pit['era']) if pit['era'] is not none else '—' }}</td>
+      <td>{{ '%.2f'|format(pit['whip']) if pit['whip'] is not none else '—' }}</td>
+      <td>{{ '%.1f'|format(pit['k9']) if pit['k9'] is not none else '—' }}</td>
+    </tr></tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if bat_log %}
+<section class="panel">
+  <h2>Batting game log <span class="muted">({{ bat_log|length }} games)</span></h2>
+  <div class="table-wrap">
+  <table class="stats">
+    <thead><tr>
+      <th class="txt">Date</th><th class="txt">Tm</th><th class="txt">Opp</th>
+      <th class="num">PA</th><th class="num">AB</th><th class="num">R</th><th class="num">H</th>
+      <th class="num">2B</th><th class="num">3B</th><th class="num">HR</th><th class="num">RBI</th>
+      <th class="num">BB</th><th class="num">SO</th><th class="num">SB</th>
+    </tr></thead>
+    <tbody>
+    {% for r in bat_log %}
+      <tr>
+        <td class="txt">{{ r['game_date'] }}</td>
+        <td class="txt">{{ r['team_abbr'] or '—' }}</td>
+        <td class="txt">{{ '@' if not r['is_home'] }}{{ r['opp_abbr'] or '—' }}</td>
+        <td>{{ r['pa'] }}</td><td>{{ r['ab'] }}</td><td>{{ r['r'] }}</td><td>{{ r['h'] }}</td>
+        <td>{{ r['doubles'] }}</td><td>{{ r['triples'] }}</td>
+        <td class="{{ 'hl' if r['hr'] }}">{{ r['hr'] }}</td><td>{{ r['rbi'] }}</td>
+        <td>{{ r['bb'] }}</td><td>{{ r['so'] }}</td><td>{{ r['sb'] }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+{% if pit_log %}
+<section class="panel">
+  <h2>Pitching game log <span class="muted">({{ pit_log|length }} games)</span></h2>
+  <div class="table-wrap">
+  <table class="stats">
+    <thead><tr>
+      <th class="txt">Date</th><th class="txt">Tm</th><th class="txt">Opp</th>
+      <th class="num">IP</th><th class="num">H</th><th class="num">R</th><th class="num">ER</th>
+      <th class="num">HR</th><th class="num">BB</th><th class="num">SO</th><th class="num">Pit</th>
+      <th class="txt">Dec</th>
+    </tr></thead>
+    <tbody>
+    {% for r in pit_log %}
+      <tr>
+        <td class="txt">{{ r['game_date'] }}</td>
+        <td class="txt">{{ r['team_abbr'] or '—' }}</td>
+        <td class="txt">{{ '@' if not r['is_home'] }}{{ r['opp_abbr'] or '—' }}</td>
+        <td>{{ ip_str(r['outs']) }}</td><td>{{ r['h'] }}</td><td>{{ r['r'] }}</td>
+        <td>{{ r['er'] }}</td><td>{{ r['hr'] }}</td><td>{{ r['bb'] }}</td>
+        <td class="hl">{{ r['so'] }}</td><td>{{ r['pitches'] }}</td>
+        <td class="txt">{% if r['w'] %}W{% elif r['l'] %}L{% elif r['sv'] %}SV{% elif r['hld'] %}H{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+{% if not bat and not pit %}
+  <p class="empty">No season stats recorded for this player.</p>
+{% endif %}
+{% endblock %}

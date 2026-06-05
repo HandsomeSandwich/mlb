@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "_sort.html" import th %}
+{% block title %}Hitters — 2025{% endblock %}
+
+{% set base_args = {'team': team, 'pos': pos, 'q': q, 'min_pa': min_pa} %}
+
+{% block content %}
+<h1 class="page-title">Hitters</h1>
+
+<form class="filters" method="get">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="dir" value="{{ dir }}">
+  <label>Team
+    <select name="team" onchange="this.form.submit()">
+      <option value="">All</option>
+      {% for t in teams %}
+        <option value="{{ t['abbreviation'] }}" {{ 'selected' if team == t['abbreviation'] }}>{{ t['abbreviation'] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Pos
+    <select name="pos" onchange="this.form.submit()">
+      <option value="">All</option>
+      {% for ps in positions %}
+        <option value="{{ ps }}" {{ 'selected' if pos == ps }}>{{ ps }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Min PA
+    <input type="number" name="min_pa" value="{{ min_pa or '' }}" min="0" step="25" style="width:5rem">
+  </label>
+  <label>Name <input type="text" name="q" value="{{ q or '' }}" placeholder="search"></label>
+  <button type="submit">Apply</button>
+  <span class="count">{{ rows|length }} players</span>
+</form>
+
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr>
+    {{ th('Player', 'name', sort, dir, base_args, numeric=False) }}
+    {{ th('Tm', 'team', sort, dir, base_args, numeric=False) }}
+    <th class="txt">Pos</th>
+    {{ th('G', 'g', sort, dir, base_args) }}
+    {{ th('PA', 'pa', sort, dir, base_args) }}
+    {{ th('AB', 'ab', sort, dir, base_args) }}
+    {{ th('R', 'r', sort, dir, base_args) }}
+    {{ th('H', 'h', sort, dir, base_args) }}
+    {{ th('2B', 'doubles', sort, dir, base_args) }}
+    {{ th('3B', 'triples', sort, dir, base_args) }}
+    {{ th('HR', 'hr', sort, dir, base_args) }}
+    {{ th('RBI', 'rbi', sort, dir, base_args) }}
+    {{ th('SB', 'sb', sort, dir, base_args) }}
+    {{ th('BB', 'bb', sort, dir, base_args) }}
+    {{ th('SO', 'so', sort, dir, base_args) }}
+    {{ th('AVG', 'avg', sort, dir, base_args) }}
+    {{ th('OBP', 'obp', sort, dir, base_args) }}
+    {{ th('SLG', 'slg', sort, dir, base_args) }}
+    {{ th('OPS', 'ops', sort, dir, base_args) }}
+    {{ th('EV', 'avg_ev', sort, dir, base_args) }}
+    {{ th('Brl%', 'barrel_pct', sort, dir, base_args) }}
+    {{ th('xwOBA', 'xwoba', sort, dir, base_args) }}
+  </tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td class="txt name"><a href="{{ url_for('player', player_id=r['player_id']) }}">{{ r['full_name'] }}</a></td>
+      <td class="txt">{{ r['team'] or '—' }}</td>
+      <td class="txt">{{ r['position'] or '' }}</td>
+      <td>{{ r['g'] }}</td><td>{{ r['pa'] }}</td><td>{{ r['ab'] }}</td>
+      <td>{{ r['r'] }}</td><td>{{ r['h'] }}</td><td>{{ r['doubles'] }}</td>
+      <td>{{ r['triples'] }}</td><td class="hl">{{ r['hr'] }}</td><td>{{ r['rbi'] }}</td>
+      <td>{{ r['sb'] }}</td><td>{{ r['bb'] }}</td><td>{{ r['so'] }}</td>
+      <td>{{ '%.3f'|format(r['avg']) if r['avg'] is not none else '—' }}</td>
+      <td>{{ '%.3f'|format(r['obp']) if r['obp'] is not none else '—' }}</td>
+      <td>{{ '%.3f'|format(r['slg']) if r['slg'] is not none else '—' }}</td>
+      <td class="hl">{{ '%.3f'|format(r['ops']) if r['ops'] is not none else '—' }}</td>
+      <td>{{ r['avg_ev'] if r['avg_ev'] is not none else '—' }}</td>
+      <td>{{ r['barrel_pct'] if r['barrel_pct'] is not none else '—' }}</td>
+      <td>{{ '%.3f'|format(r['xwoba']) if r['xwoba'] is not none else '—' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="22" class="empty">No players match these filters.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
