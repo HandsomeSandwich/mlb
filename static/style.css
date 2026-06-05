@@ -36,6 +36,12 @@ a:hover { text-decoration: underline; }
 .topbar nav { display: flex; gap: 1rem; }
 .topbar nav a { color: var(--muted); font-weight: 600; }
 .topbar nav a:hover { color: var(--text); text-decoration: none; }
+.season-select {
+  margin-left: auto;
+  background: var(--panel-2); border: 1px solid var(--accent); color: var(--accent);
+  font-weight: 700; padding: 0.4rem 0.6rem; border-radius: 6px; cursor: pointer;
+}
+.season-select + .search { margin-left: 0.75rem; }
 .search { margin-left: auto; }
 .search input {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
@@ -105,6 +111,7 @@ table.stats td.name a { font-weight: 600; }
 .player-head h1 { margin: 0 0 0.35rem; font-size: 1.8rem; }
 .bio { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .bio span { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.8rem; color: var(--muted); }
+.season-tabs { display: flex; gap: 0.3rem; margin-top: 0.6rem; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem 1.2rem; margin-bottom: 1.25rem; }
 .panel h2 { margin: 0 0 0.8rem; font-size: 1.05rem; }
 .panel h2 .muted, .muted { color: var(--muted); font-weight: 400; font-size: 0.85rem; }
@@ -129,6 +136,27 @@ table.stats.line th, table.stats.line td { text-align: center; }
 }
 .chip:hover { color: var(--text); text-decoration: none; }
 .chip.on { background: var(--accent); color: #1a1205; border-color: var(--accent); }
+
+/* ---- my team ---- */
+.myteam-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+.myteam-head h1 { margin: 0; }
+.myteam-head select {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  padding: 0.4rem 0.6rem; border-radius: 6px;
+}
+.cat-strip { display: flex; flex-wrap: wrap; gap: 1.5rem; }
+.cat-group { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 1rem; }
+.cat-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); margin-right: 0.3rem; }
+.cat-group > div { text-align: center; min-width: 56px; }
+.cat-group b { display: block; font-size: 1.2rem; color: var(--text); font-variant-numeric: tabular-nums; }
+.cat-group span { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+td.slot { font-weight: 700; color: var(--accent); }
+.unmatched { color: var(--muted); font-style: italic; }
+.il-tag { margin-left: 0.4rem; font-size: 0.65rem; color: #f85149; border: 1px solid #f85149;
+  border-radius: 4px; padding: 0 0.25rem; vertical-align: middle; }
+pre.code { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 0.8rem 1rem; color: var(--text); display: inline-block; text-align: left; }
 
 /* ---- status footer ---- */
 .statusbar {

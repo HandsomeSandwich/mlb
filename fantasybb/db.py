@@ -73,31 +73,34 @@ CREATE TABLE IF NOT EXISTS pitching_games (
     PRIMARY KEY (game_pk, player_id)
 );
 
--- Official season batting totals (from the stats endpoint).
+-- Official season batting totals (from the stats endpoint). Keyed by
+-- (player_id, season) so multiple seasons can coexist.
 CREATE TABLE IF NOT EXISTS batting_season (
-    player_id INTEGER PRIMARY KEY REFERENCES players(player_id),
+    player_id INTEGER REFERENCES players(player_id),
     season INTEGER, team_id INTEGER,
     g INTEGER, pa INTEGER, ab INTEGER, r INTEGER, h INTEGER,
     doubles INTEGER, triples INTEGER, hr INTEGER, rbi INTEGER,
     bb INTEGER, ibb INTEGER, so INTEGER, hbp INTEGER,
     sb INTEGER, cs INTEGER, gidp INTEGER, tb INTEGER,
     sac_bunts INTEGER, sac_flies INTEGER,
-    avg REAL, obp REAL, slg REAL, ops REAL, babip REAL
+    avg REAL, obp REAL, slg REAL, ops REAL, babip REAL,
+    PRIMARY KEY (player_id, season)
 );
 
 -- Official season pitching totals.
 CREATE TABLE IF NOT EXISTS pitching_season (
-    player_id INTEGER PRIMARY KEY REFERENCES players(player_id),
+    player_id INTEGER REFERENCES players(player_id),
     season INTEGER, team_id INTEGER,
     g INTEGER, gs INTEGER, w INTEGER, l INTEGER, sv INTEGER, hld INTEGER, bs INTEGER,
     outs INTEGER, h INTEGER, r INTEGER, er INTEGER, hr INTEGER,
     bb INTEGER, ibb INTEGER, so INTEGER, hbp INTEGER, bf INTEGER,
-    era REAL, whip REAL, k9 REAL, bb9 REAL, kbb REAL
+    era REAL, whip REAL, k9 REAL, bb9 REAL, kbb REAL,
+    PRIMARY KEY (player_id, season)
 );
 
 -- Statcast batted-ball aggregates per hitter (optional enrichment).
 CREATE TABLE IF NOT EXISTS statcast_batting (
-    player_id INTEGER PRIMARY KEY REFERENCES players(player_id),
+    player_id INTEGER REFERENCES players(player_id),
     season INTEGER,
     bbe INTEGER,            -- batted-ball events
     avg_ev REAL,            -- average exit velocity (mph)
@@ -106,7 +109,24 @@ CREATE TABLE IF NOT EXISTS statcast_batting (
     barrel_pct REAL,        -- barrels / BBE
     hard_hit_pct REAL,      -- 95+ mph / BBE
     xwoba REAL,             -- expected wOBA on contact
-    xba REAL                -- expected batting avg on contact
+    xba REAL,               -- expected batting avg on contact
+    PRIMARY KEY (player_id, season)
+);
+
+-- Synced Yahoo fantasy roster (matched to our players where possible).
+CREATE TABLE IF NOT EXISTS fantasy_roster (
+    team_key   TEXT,
+    team_name  TEXT,
+    season     INTEGER,
+    slot       INTEGER,        -- display order
+    yahoo_id   TEXT,
+    yahoo_name TEXT,
+    player_id  INTEGER,        -- matched DB player (NULL if unmatched)
+    selected_position TEXT,
+    positions  TEXT,
+    yahoo_team TEXT,
+    status     TEXT,           -- IL / DTD etc.
+    PRIMARY KEY (team_key, yahoo_id)
 );
 
 -- Tracks ingest progress so game-log backfills are resumable.
@@ -132,9 +152,34 @@ def connect(db_path: str = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+_SEASON_PK_TABLES = ("batting_season", "pitching_season", "statcast_batting")
+
+
+def _migrate_season_pk(conn) -> None:
+    """Convert legacy season tables (PK = player_id) to PK (player_id, season).
+
+    Columns are unchanged -- only the primary key -- so a straight `SELECT *`
+    copy preserves all existing rows (which are all the 2025 season).
+    """
+    aside = []
+    for tbl in _SEASON_PK_TABLES:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (tbl,)
+        ).fetchone()
+        if row and "(player_id,season)" not in row[0].replace(" ", "").replace("\n", ""):
+            conn.execute(f"ALTER TABLE {tbl} RENAME TO {tbl}__old")
+            aside.append(tbl)
+    conn.executescript(SCHEMA)  # recreate with new PK + any new tables
+    for tbl in aside:
+        conn.execute(f"INSERT OR IGNORE INTO {tbl} SELECT * FROM {tbl}__old")
+        conn.execute(f"DROP TABLE {tbl}__old")
+
+
 def init_db(db_path: str = DB_PATH) -> None:
-    """Create all tables/indexes if they do not yet exist."""
+    """Create all tables/indexes if they do not yet exist (migrating if needed)."""
     conn = connect(db_path)
+    conn.execute("PRAGMA foreign_keys=OFF")  # let the table swap proceed cleanly
     with conn:
+        _migrate_season_pk(conn)
         conn.executescript(SCHEMA)
     conn.close()

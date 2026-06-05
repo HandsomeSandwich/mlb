@@ -3,5 +3,9 @@ __pycache__/
 *.pyc
 data/*.db
 data/*.db-journal
+# Yahoo OAuth credentials + cached tokens -- never commit these
+data/yahoo_oauth.json
+.env
 .DS_Store
 .idea/
+data/*.log

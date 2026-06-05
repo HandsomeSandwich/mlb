@@ -2,7 +2,7 @@
 {% from "_sort.html" import th %}
 {% block title %}Hot / Cold — last {{ days }} days{% endblock %}
 
-{% set base_args = {'days': days, 'min_pa': min_pa} %}
+{% set base_args = {'days': days, 'min_pa': min_pa, 'season': season} %}
 
 {% block content %}
 <h1 class="page-title">Hot / Cold Hitters</h1>
@@ -16,11 +16,12 @@
 <form class="filters" method="get">
   <input type="hidden" name="sort" value="{{ sort }}">
   <input type="hidden" name="dir" value="{{ dir }}">
+  {% if season %}<input type="hidden" name="season" value="{{ season }}">{% endif %}
   <label>Window
     <span class="chips">
       {% for d in [7, 15, 30] %}
         <a class="chip {{ 'on' if days == d }}"
-           href="?sort={{ sort }}&dir={{ dir }}&days={{ d }}&min_pa={{ min_pa }}">{{ d }}d</a>
+           href="?sort={{ sort }}&dir={{ dir }}&days={{ d }}&min_pa={{ min_pa }}{% if season %}&season={{ season }}{% endif %}">{{ d }}d</a>
       {% endfor %}
     </span>
   </label>

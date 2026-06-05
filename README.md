@@ -46,6 +46,33 @@ python3 -m venv .venv
 re-run, or backfill by date range, without redoing work. The DB lands at
 `data/baseball.db`.
 
+### Multiple seasons
+
+Tables are keyed by `(player_id, season)`, so you can hold several years at
+once. Ingest each with its own `--season`, then switch years from the dropdown
+in the dashboard header:
+
+```bash
+.venv/bin/python -m fantasybb.ingest all --season 2025
+.venv/bin/python -m fantasybb.ingest all --season 2026
+.venv/bin/python -m fantasybb.ingest statcast --season 2026
+```
+
+## Connect your Yahoo fantasy team
+
+One-time OAuth (credentials + tokens live in the gitignored
+`data/yahoo_oauth.json`):
+
+```bash
+python -m fantasybb.yahoo url          # open the printed URL, click Agree
+python -m fantasybb.yahoo code <CODE>  # paste the code from the redirect URL
+python -m fantasybb.yahoo teams        # list your teams -> get a team_key
+python -m fantasybb.yahoo sync <team_key>   # match roster to the DB + store it
+```
+
+Create the app at https://developer.yahoo.com/apps/create/ — **Confidential
+Client**, redirect URI `https://localhost:8000`, **Fantasy Sports → Read**.
+
 ## Run the dashboard
 
 ```bash
@@ -55,7 +82,11 @@ re-run, or backfill by date range, without redoing work. The DB lands at
 * **Home** — hitting & pitching leader cards (HR, RBI, SB, AVG, W, SV, K, ERA).
 * **Hitters / Pitchers** — sortable, filterable leaderboards (click any column
   header to sort; filter by team, position, min PA/IP; search by name).
-* **Player page** — bio, season line, Statcast strip, and full game log.
+* **Hot / Cold** — rolling last-N-days form with a window OPS vs. season delta.
+* **My Team** — your synced Yahoo roster with season stats, Statcast, IL tags,
+  and a 5×5 category snapshot.
+* **Player page** — bio, per-season line, Statcast strip, and game log.
+* **Season dropdown** (top-right) switches every page between ingested years.
 
 ## Layout
 

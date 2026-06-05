@@ -118,8 +118,8 @@ def ingest_season(client: MLBClient, conn, season: int) -> tuple[int, int]:
                     rbi, bb, ibb, so, hbp, sb, cs, gidp, tb, sac_bunts, sac_flies,
                     avg, obp, slg, ops, babip)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                   ON CONFLICT(player_id) DO UPDATE SET
-                    season=excluded.season, team_id=excluded.team_id, g=excluded.g,
+                   ON CONFLICT(player_id, season) DO UPDATE SET
+                    team_id=excluded.team_id, g=excluded.g,
                     pa=excluded.pa, ab=excluded.ab, r=excluded.r, h=excluded.h,
                     doubles=excluded.doubles, triples=excluded.triples, hr=excluded.hr,
                     rbi=excluded.rbi, bb=excluded.bb, ibb=excluded.ibb, so=excluded.so,
@@ -156,8 +156,8 @@ def ingest_season(client: MLBClient, conn, season: int) -> tuple[int, int]:
                    (player_id, season, team_id, g, gs, w, l, sv, hld, bs, outs, h, r, er,
                     hr, bb, ibb, so, hbp, bf, era, whip, k9, bb9, kbb)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                   ON CONFLICT(player_id) DO UPDATE SET
-                    season=excluded.season, team_id=excluded.team_id, g=excluded.g,
+                   ON CONFLICT(player_id, season) DO UPDATE SET
+                    team_id=excluded.team_id, g=excluded.g,
                     gs=excluded.gs, w=excluded.w, l=excluded.l, sv=excluded.sv,
                     hld=excluded.hld, bs=excluded.bs, outs=excluded.outs, h=excluded.h,
                     r=excluded.r, er=excluded.er, hr=excluded.hr, bb=excluded.bb,

@@ -40,24 +40,38 @@ def close_db(exc):
         conn.close()
 
 
+def selected_season(conn, allowed=None):
+    """The season chosen via ?season=, falling back to the latest available."""
+    allowed = allowed if allowed is not None else Q.seasons(conn)
+    s = request.args.get("season", type=int)
+    return s if s in allowed else (allowed[0] if allowed else None)
+
+
 @app.context_processor
 def inject_helpers():
-    # available in every template
-    return {"ip_str": Q.ip_str, "status": Q.db_status(get_db())}
+    conn = get_db()
+    seasons = Q.seasons(conn)
+    return {
+        "ip_str": Q.ip_str,
+        "status": Q.db_status(get_db()),
+        "seasons": seasons,
+        "season": selected_season(conn, seasons),
+    }
 
 
 @app.route("/")
 def index():
     conn = get_db()
+    yr = selected_season(conn)
     ctx = {
-        "hr_leaders": Q.leaders(conn, "batting_season", "hr"),
-        "rbi_leaders": Q.leaders(conn, "batting_season", "rbi"),
-        "sb_leaders": Q.leaders(conn, "batting_season", "sb"),
-        "avg_leaders": Q.leaders(conn, "batting_season", "avg", where="pa >= 300"),
-        "win_leaders": Q.leaders(conn, "pitching_season", "w"),
-        "sv_leaders": Q.leaders(conn, "pitching_season", "sv"),
-        "k_leaders": Q.leaders(conn, "pitching_season", "so"),
-        "era_leaders": Q.leaders(conn, "pitching_season", "era", asc=True, where="outs >= 450"),
+        "hr_leaders": Q.leaders(conn, "batting_season", "hr", yr),
+        "rbi_leaders": Q.leaders(conn, "batting_season", "rbi", yr),
+        "sb_leaders": Q.leaders(conn, "batting_season", "sb", yr),
+        "avg_leaders": Q.leaders(conn, "batting_season", "avg", yr, where="pa >= 300"),
+        "win_leaders": Q.leaders(conn, "pitching_season", "w", yr),
+        "sv_leaders": Q.leaders(conn, "pitching_season", "sv", yr),
+        "k_leaders": Q.leaders(conn, "pitching_season", "so", yr),
+        "era_leaders": Q.leaders(conn, "pitching_season", "era", yr, asc=True, where="outs >= 450"),
     }
     return render_template("index.html", **ctx)
 
@@ -65,6 +79,7 @@ def index():
 @app.route("/hitters")
 def hitters():
     conn = get_db()
+    yr = selected_season(conn)
     sort = request.args.get("sort", "hr")
     direction = request.args.get("dir", "desc")
     team = request.args.get("team") or None
@@ -72,7 +87,7 @@ def hitters():
     q = request.args.get("q") or None
     min_pa = request.args.get("min_pa", type=int) or 0
     rows = Q.hitters(conn, sort=sort, direction=direction, team=team, pos=pos,
-                     min_pa=min_pa, q=q)
+                     min_pa=min_pa, q=q, season=yr)
     return render_template(
         "hitters.html", rows=rows, sort=sort, dir=direction, team=team, pos=pos,
         q=q, min_pa=min_pa, teams=Q.teams_list(conn), positions=Q.positions_list(conn),
@@ -82,13 +97,14 @@ def hitters():
 @app.route("/pitchers")
 def pitchers():
     conn = get_db()
+    yr = selected_season(conn)
     sort = request.args.get("sort", "so")
     direction = request.args.get("dir", "desc")
     team = request.args.get("team") or None
     q = request.args.get("q") or None
     min_ip = request.args.get("min_ip", type=int) or 0
     rows = Q.pitchers(conn, sort=sort, direction=direction, team=team,
-                      min_outs=min_ip * 3, q=q)
+                      min_outs=min_ip * 3, q=q, season=yr)
     return render_template(
         "pitchers.html", rows=rows, sort=sort, dir=direction, team=team, q=q,
         min_ip=min_ip, teams=Q.teams_list(conn),
@@ -98,17 +114,72 @@ def pitchers():
 @app.route("/trends")
 def trends():
     conn = get_db()
+    yr = selected_season(conn)
     sort = request.args.get("sort", "ops")
     direction = request.args.get("dir", "desc")
     days = request.args.get("days", type=int) or 15
     min_pa = request.args.get("min_pa", type=int)
     if min_pa is None:
         min_pa = 20
-    rows = Q.recent_hitters(conn, days=days, min_pa=min_pa, sort=sort, direction=direction)
-    start, end = Q.recent_window(conn, days)
+    rows = Q.recent_hitters(conn, days=days, min_pa=min_pa, sort=sort,
+                            direction=direction, season=yr)
+    start, end = Q.recent_window(conn, days, yr)
     return render_template(
         "trends.html", rows=rows, sort=sort, dir=direction, days=days,
         min_pa=min_pa, start=start, end=end,
+    )
+
+
+def _is_pitcher(row) -> bool:
+    sel = (row["selected_position"] or "")
+    pos = (row["positions"] or "")
+    if sel in ("SP", "RP", "P"):
+        return True
+    if sel in ("C", "1B", "2B", "3B", "SS", "OF", "CI", "MI", "Util"):
+        return False
+    # bench/IL slots: fall back to eligibility, then to which stat line exists
+    if "SP" in pos or "RP" in pos:
+        return True
+    if pos:
+        return False
+    return row["outs"] is not None and row["b_pa"] is None
+
+
+@app.route("/myteam")
+def myteam():
+    conn = get_db()
+    teams = Q.my_teams(conn)
+    if not teams:
+        return render_template("myteam.html", teams=[], rows=None)
+    team_key = request.args.get("team_key") or teams[0]["team_key"]
+    yr = selected_season(conn)
+    roster = Q.my_team(conn, team_key, yr)
+
+    hitters_, pitchers_ = [], []
+    for r in roster:
+        (pitchers_ if _is_pitcher(r) else hitters_).append(r)
+
+    # 5x5 category roll-ups over matched players who actually have a line
+    def s(rows, key):
+        return sum((row[key] or 0) for row in rows)
+    h_with = [r for r in hitters_ if r["b_ab"]]
+    p_with = [r for r in pitchers_ if r["outs"]]
+    ab, h = s(h_with, "b_ab"), s(h_with, "b_h")
+    outs, er = s(p_with, "outs"), s(p_with, "p_er")
+    walks_hits = s(p_with, "p_h") + s(p_with, "p_bb")
+    cats = {
+        "r": s(h_with, "r"), "hr": s(h_with, "hr"), "rbi": s(h_with, "rbi"),
+        "sb": s(h_with, "sb"), "avg": (h / ab) if ab else None,
+        "w": s(p_with, "w"), "sv": s(p_with, "sv"), "so": s(p_with, "p_so"),
+        "era": (27 * er / outs) if outs else None,
+        "whip": (walks_hits / (outs / 3)) if outs else None,
+        "ip": outs / 3 if outs else 0,
+    }
+    team_name = next((t["team_name"] for t in teams if t["team_key"] == team_key), team_key)
+    unmatched = [r["yahoo_name"] for r in roster if r["player_id"] is None]
+    return render_template(
+        "myteam.html", teams=teams, team_key=team_key, team_name=team_name,
+        hitters=hitters_, pitchers=pitchers_, cats=cats, unmatched=unmatched,
     )
 
 
@@ -118,14 +189,18 @@ def player(player_id):
     p = Q.player(conn, player_id)
     if p is None:
         return render_template("not_found.html"), 404
+    pseasons = Q.player_seasons(conn, player_id)
+    yr = selected_season(conn, pseasons) or selected_season(conn)
     return render_template(
         "player.html",
         p=p,
-        bat=Q.batting_season_row(conn, player_id),
-        pit=Q.pitching_season_row(conn, player_id),
-        statcast=Q.statcast_row(conn, player_id),
-        bat_log=Q.batting_log(conn, player_id),
-        pit_log=Q.pitching_log(conn, player_id),
+        player_season=yr,
+        player_seasons=pseasons,
+        bat=Q.batting_season_row(conn, player_id, yr),
+        pit=Q.pitching_season_row(conn, player_id, yr),
+        statcast=Q.statcast_row(conn, player_id, yr),
+        bat_log=Q.batting_log(conn, player_id, yr),
+        pit_log=Q.pitching_log(conn, player_id, yr),
     )
 
 

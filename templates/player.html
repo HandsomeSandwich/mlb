@@ -11,6 +11,14 @@
     {% if p['pitch_hand'] %}<span>Throws: {{ p['pitch_hand'] }}</span>{% endif %}
     {% if p['birth_date'] %}<span>b. {{ p['birth_date'] }}</span>{% endif %}
   </div>
+  {% if player_seasons %}
+  <div class="season-tabs">
+    {% for s in player_seasons %}
+      <a class="chip {{ 'on' if s == player_season }}"
+         href="{{ url_for('player', player_id=p['player_id']) }}?season={{ s }}">{{ s }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
 {% if bat %}

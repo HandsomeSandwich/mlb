@@ -14,8 +14,18 @@
     <a href="{{ url_for('hitters') }}">Hitters</a>
     <a href="{{ url_for('pitchers') }}">Pitchers</a>
     <a href="{{ url_for('trends') }}">Hot/Cold</a>
+    <a href="{{ url_for('myteam') }}">My Team</a>
   </nav>
+  {% if seasons and seasons|length > 1 %}
+  <select class="season-select" title="Season"
+          onchange="const u=new URL(location); u.searchParams.set('season', this.value); location=u">
+    {% for s in seasons %}
+      <option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
   <form class="search" action="{{ url_for('hitters') }}" method="get">
+    {% if season %}<input type="hidden" name="season" value="{{ season }}">{% endif %}
     <input type="text" name="q" placeholder="Search player…" value="{{ request.args.get('q','') }}">
   </form>
 </header>
@@ -25,7 +35,7 @@
 </main>
 
 <footer class="statusbar">
-  2025 MLB season · {{ status.hitters }} hitters · {{ status.pitchers }} pitchers ·
+  {{ season }} MLB season · {{ status.hitters }} hitters · {{ status.pitchers }} pitchers ·
   {{ status.games }} games loaded ·
   {{ status.batting_games }} batting / {{ status.pitching_games }} pitching game-logs ·
   {{ status.statcast }} Statcast profiles

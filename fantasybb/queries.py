@@ -46,9 +46,9 @@ def _order_clause(sort: str, direction: str, allowed: dict, default: str) -> str
 
 
 def hitters(conn, *, sort="hr", direction="desc", team=None, pos=None,
-            min_pa=0, q=None, limit=300):
-    where = ["b.pa >= ?"]
-    params: list = [min_pa]
+            min_pa=0, q=None, limit=300, season=None):
+    where = ["b.pa >= ?", "b.season = ?"]
+    params: list = [min_pa, season]
     if team:
         where.append("t.abbreviation = ?")
         params.append(team)
@@ -68,7 +68,8 @@ def hitters(conn, *, sort="hr", direction="desc", team=None, pos=None,
         FROM batting_season b
         JOIN players p USING(player_id)
         LEFT JOIN teams t ON t.team_id = p.team_id
-        LEFT JOIN statcast_batting s ON s.player_id = b.player_id
+        LEFT JOIN statcast_batting s
+               ON s.player_id = b.player_id AND s.season = b.season
         WHERE {' AND '.join(where)}
         ORDER BY {order}
         LIMIT ?"""
@@ -77,9 +78,9 @@ def hitters(conn, *, sort="hr", direction="desc", team=None, pos=None,
 
 
 def pitchers(conn, *, sort="so", direction="desc", team=None,
-             min_outs=0, q=None, limit=300):
-    where = ["ps.outs >= ?"]
-    params: list = [min_outs]
+             min_outs=0, q=None, limit=300, season=None):
+    where = ["ps.outs >= ?", "ps.season = ?"]
+    params: list = [min_outs, season]
     if team:
         where.append("t.abbreviation = ?")
         params.append(team)
@@ -102,6 +103,18 @@ def pitchers(conn, *, sort="so", direction="desc", team=None,
     return conn.execute(sql, params).fetchall()
 
 
+def seasons(conn) -> list[int]:
+    """Seasons present in the DB, newest first."""
+    rows = conn.execute(
+        "SELECT DISTINCT season FROM batting_season ORDER BY season DESC").fetchall()
+    return [r[0] for r in rows]
+
+
+def latest_season(conn):
+    r = conn.execute("SELECT MAX(season) FROM batting_season").fetchone()[0]
+    return r
+
+
 def player(conn, player_id: int):
     return conn.execute(
         """SELECT p.*, t.abbreviation AS team, t.name AS team_name
@@ -111,38 +124,56 @@ def player(conn, player_id: int):
     ).fetchone()
 
 
-def batting_season_row(conn, player_id: int):
-    return conn.execute("SELECT * FROM batting_season WHERE player_id=?", (player_id,)).fetchone()
+def batting_season_row(conn, player_id: int, season: int):
+    return conn.execute(
+        "SELECT * FROM batting_season WHERE player_id=? AND season=?",
+        (player_id, season)).fetchone()
 
 
-def pitching_season_row(conn, player_id: int):
-    return conn.execute("SELECT * FROM pitching_season WHERE player_id=?", (player_id,)).fetchone()
+def pitching_season_row(conn, player_id: int, season: int):
+    return conn.execute(
+        "SELECT * FROM pitching_season WHERE player_id=? AND season=?",
+        (player_id, season)).fetchone()
 
 
-def statcast_row(conn, player_id: int):
-    return conn.execute("SELECT * FROM statcast_batting WHERE player_id=?", (player_id,)).fetchone()
+def statcast_row(conn, player_id: int, season: int):
+    return conn.execute(
+        "SELECT * FROM statcast_batting WHERE player_id=? AND season=?",
+        (player_id, season)).fetchone()
 
 
-def batting_log(conn, player_id: int, limit=200):
+def batting_log(conn, player_id: int, season: int, limit=200):
     return conn.execute(
         """SELECT bg.*, ht.abbreviation AS team_abbr, ot.abbreviation AS opp_abbr
            FROM batting_games bg
            LEFT JOIN teams ht ON ht.team_id = bg.team_id
            LEFT JOIN teams ot ON ot.team_id = bg.opp_team_id
-           WHERE bg.player_id=? ORDER BY bg.game_date DESC LIMIT ?""",
-        (player_id, limit),
+           WHERE bg.player_id=? AND substr(bg.game_date,1,4)=?
+           ORDER BY bg.game_date DESC LIMIT ?""",
+        (player_id, str(season), limit),
     ).fetchall()
 
 
-def pitching_log(conn, player_id: int, limit=200):
+def pitching_log(conn, player_id: int, season: int, limit=200):
     return conn.execute(
         """SELECT pg.*, ht.abbreviation AS team_abbr, ot.abbreviation AS opp_abbr
            FROM pitching_games pg
            LEFT JOIN teams ht ON ht.team_id = pg.team_id
            LEFT JOIN teams ot ON ot.team_id = pg.opp_team_id
-           WHERE pg.player_id=? ORDER BY pg.game_date DESC LIMIT ?""",
-        (player_id, limit),
+           WHERE pg.player_id=? AND substr(pg.game_date,1,4)=?
+           ORDER BY pg.game_date DESC LIMIT ?""",
+        (player_id, str(season), limit),
     ).fetchall()
+
+
+def player_seasons(conn, player_id: int) -> list[int]:
+    """Seasons this player has a batting or pitching line for, newest first."""
+    rows = conn.execute(
+        """SELECT season FROM batting_season WHERE player_id=?
+           UNION SELECT season FROM pitching_season WHERE player_id=?
+           ORDER BY season DESC""",
+        (player_id, player_id)).fetchall()
+    return [r[0] for r in rows]
 
 
 def teams_list(conn):
@@ -157,15 +188,44 @@ def positions_list(conn):
     return [r[0] for r in rows]
 
 
-def leaders(conn, table_join, col, label_extra="", limit=5, asc=False, where="1=1"):
-    """Small helper for the home-page leader cards."""
+def leaders(conn, table_join, col, season, limit=5, asc=False, where="1=1"):
+    """Small helper for the home-page leader cards (for one season)."""
     direction = "ASC" if asc else "DESC"
     sql = f"""
-        SELECT p.player_id, p.full_name, x.{col} AS val {label_extra}
+        SELECT p.player_id, p.full_name, x.{col} AS val
         FROM {table_join} x JOIN players p USING(player_id)
-        WHERE x.{col} IS NOT NULL AND {where}
+        WHERE x.{col} IS NOT NULL AND x.season = ? AND {where}
         ORDER BY x.{col} {direction} LIMIT ?"""
-    return conn.execute(sql, (limit,)).fetchall()
+    return conn.execute(sql, (season, limit)).fetchall()
+
+
+def my_teams(conn):
+    """Synced Yahoo rosters available to display."""
+    return conn.execute(
+        "SELECT DISTINCT team_key, team_name FROM fantasy_roster ORDER BY team_name"
+    ).fetchall()
+
+
+def my_team(conn, team_key: str, season: int):
+    """A synced roster joined with that season's batting/pitching/Statcast lines."""
+    return conn.execute(
+        """SELECT fr.slot, fr.selected_position, fr.positions, fr.yahoo_name,
+                  fr.yahoo_team, fr.status, fr.player_id,
+                  p.full_name,
+                  b.pa AS b_pa, b.ab AS b_ab, b.h AS b_h, b.r, b.hr, b.rbi,
+                  b.sb, b.avg, b.ops,
+                  sc.barrel_pct, sc.avg_ev,
+                  ps.gs, ps.w, ps.sv, ps.so AS p_so, ps.outs, ps.era, ps.whip,
+                  ps.er AS p_er, ps.h AS p_h, ps.bb AS p_bb
+           FROM fantasy_roster fr
+           LEFT JOIN players p          ON p.player_id = fr.player_id
+           LEFT JOIN batting_season b   ON b.player_id = fr.player_id AND b.season = ?
+           LEFT JOIN pitching_season ps ON ps.player_id = fr.player_id AND ps.season = ?
+           LEFT JOIN statcast_batting sc ON sc.player_id = fr.player_id AND sc.season = ?
+           WHERE fr.team_key = ?
+           ORDER BY fr.slot""",
+        (season, season, season, team_key),
+    ).fetchall()
 
 
 def db_status(conn):
@@ -181,28 +241,33 @@ def db_status(conn):
     }
 
 
-def latest_game_date(conn):
+def latest_game_date(conn, season=None):
+    if season is not None:
+        return conn.execute(
+            "SELECT MAX(game_date) FROM batting_games WHERE substr(game_date,1,4)=?",
+            (str(season),)).fetchone()[0]
     return conn.execute("SELECT MAX(game_date) FROM batting_games").fetchone()[0]
 
 
-def recent_window(conn, days: int):
-    """(start_date, end_date) for the last `days` of data we hold.
+def recent_window(conn, days: int, season=None):
+    """(start_date, end_date) for the last `days` of data in a season.
 
-    The 2025 season is complete, so 'recent' is relative to the most recent
-    game in the DB rather than today's date.
+    'Recent' is relative to the most recent game in that season (a completed
+    season ends in the fall; an in-progress one ends at the latest game played).
     """
-    end = latest_game_date(conn)
+    end = latest_game_date(conn, season)
     start = conn.execute("SELECT date(?, ?)", (end, f"-{int(days)} days")).fetchone()[0]
     return start, end
 
 
-def recent_hitters(conn, *, days=15, min_pa=20, sort="ops", direction="desc", limit=300):
+def recent_hitters(conn, *, days=15, min_pa=20, sort="ops", direction="desc",
+                   limit=300, season=None):
     """Hot/cold hitters over the last `days` of the season.
 
     Rate stats (AVG/OBP/SLG/OPS) are computed over the window; `delta` is the
     window OPS minus the player's full-season OPS — positive = heating up.
     """
-    start, _ = recent_window(conn, days)
+    start, _ = recent_window(conn, days, season)
     order = RECENT_SORTS.get(sort, "ops")
     dir_sql = "ASC" if direction == "asc" else "DESC"
     sql = f"""
@@ -228,10 +293,12 @@ def recent_hitters(conn, *, days=15, min_pa=20, sort="ops", direction="desc", li
         FROM batting_games bg
         JOIN players p USING(player_id)
         LEFT JOIN teams t ON t.team_id = p.team_id
-        LEFT JOIN batting_season bs ON bs.player_id = bg.player_id
-        WHERE bg.game_date >= ?
+        LEFT JOIN batting_season bs
+               ON bs.player_id = bg.player_id AND bs.season = ?
+        WHERE bg.game_date >= ? AND bg.game_date <= ?
         GROUP BY bg.player_id
         HAVING SUM(bg.pa) >= ?
         ORDER BY {order} {dir_sql} NULLS LAST, p.full_name ASC
         LIMIT ?"""
-    return conn.execute(sql, (start, min_pa, limit)).fetchall()
+    end = latest_game_date(conn, season)
+    return conn.execute(sql, (season, start, end, min_pa, limit)).fetchall()
