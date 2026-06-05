@@ -1,0 +1,7 @@
+{# Sortable column header. Toggles asc/desc and keeps the current filters. #}
+{% macro th(label, col, cur_sort, cur_dir, base_args, numeric=True) %}
+  {% set new_dir = 'asc' if (cur_sort == col and cur_dir == 'desc') else 'desc' %}
+  <th class="{{ 'num' if numeric else 'txt' }} {{ 'active' if cur_sort == col else '' }}">
+    <a href="{{ sort_link(base_args, col, new_dir) }}">{{ label }}{% if cur_sort == col %}<span class="arrow">{{ '▾' if cur_dir == 'desc' else '▴' }}</span>{% endif %}</a>
+  </th>
+{% endmacro %}

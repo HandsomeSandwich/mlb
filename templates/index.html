@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Fantasy Baseball 2025 — Overview{% endblock %}
+
+{% macro card(title, rows, fmt='int', unit='') %}
+  <div class="leader-card">
+    <h3>{{ title }}</h3>
+    <ol>
+      {% for r in rows %}
+        <li>
+          <a href="{{ url_for('player', player_id=r['player_id']) }}">{{ r['full_name'] }}</a>
+          <span class="val">
+            {%- if fmt == 'avg' -%}{{ '%.3f'|format(r['val']) }}
+            {%- elif fmt == 'era' -%}{{ '%.2f'|format(r['val']) }}
+            {%- else -%}{{ r['val'] }}{%- endif -%}{{ unit }}
+          </span>
+        </li>
+      {% endfor %}
+    </ol>
+  </div>
+{% endmacro %}
+
+{% block content %}
+<section class="hero">
+  <h1>2025 MLB Season Dashboard</h1>
+  <p>A searchable database of every player, season line, and game log — built for fantasy.
+     Jump into <a href="{{ url_for('hitters') }}">hitters</a> or
+     <a href="{{ url_for('pitchers') }}">pitchers</a>, or click any leader below.</p>
+</section>
+
+<h2 class="section-head">Hitting leaders</h2>
+<div class="leader-grid">
+  {{ card('Home Runs', hr_leaders) }}
+  {{ card('RBI', rbi_leaders) }}
+  {{ card('Stolen Bases', sb_leaders) }}
+  {{ card('Batting Avg (300+ PA)', avg_leaders, 'avg') }}
+</div>
+
+<h2 class="section-head">Pitching leaders</h2>
+<div class="leader-grid">
+  {{ card('Wins', win_leaders) }}
+  {{ card('Saves', sv_leaders) }}
+  {{ card('Strikeouts', k_leaders) }}
+  {{ card('ERA (150+ IP)', era_leaders, 'era') }}
+</div>
+{% endblock %}
