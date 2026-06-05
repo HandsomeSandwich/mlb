@@ -16,10 +16,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 import time
-import unicodedata
 from typing import Any
 
 import requests
@@ -149,6 +147,41 @@ def get_teams(cfg: dict | None = None) -> list[dict]:
     return out
 
 
+def get_available(league_key: str, position: str = "P", cfg: dict | None = None) -> list[dict]:
+    """Available (free-agent + waiver) players in a league for a position.
+
+    Yahoo paginates 25 at a time; we walk until a short/empty page.
+    """
+    cfg = cfg or load_cfg()
+    out: list[dict] = []
+    start = 0
+    while True:
+        data = api_get(
+            f"league/{league_key}/players;status=A;position={position};"
+            f"sort=AR;start={start};count=25", cfg)
+        league = data["fantasy_content"]["league"]
+        players = None
+        for part in league:
+            if isinstance(part, dict) and "players" in part:
+                players = part["players"]
+        items = _coll(players or {})
+        if not items:
+            break
+        for pl in items:
+            meta = _flatten(pl["player"][0])
+            nm = meta.get("name")
+            out.append({
+                "name": nm.get("full") if isinstance(nm, dict) else nm,
+                "team_abbr": meta.get("editorial_team_abbr"),
+                "position": meta.get("display_position"),
+                "status": meta.get("status"),
+            })
+        if len(items) < 25:
+            break
+        start += 25
+    return out
+
+
 def get_roster(team_key: str, cfg: dict | None = None) -> list[dict]:
     """Return the roster as [{name, yahoo_id, positions, selected_position}]."""
     data = api_get(f"team/{team_key}/roster", cfg)
@@ -183,26 +216,12 @@ def get_roster(team_key: str, cfg: dict | None = None) -> list[dict]:
 # --------------------------------------------------------------------------- #
 # match Yahoo players to our database + persist the roster
 # --------------------------------------------------------------------------- #
-def normalize_name(s: str | None) -> str:
-    """Fold accents, drop punctuation and Jr/Sr suffixes for name matching."""
-    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode()
-    s = s.lower()
-    s = re.sub(r"[.\-'`]", "", s)
-    s = re.sub(r"\s+(jr|sr|ii|iii|iv|v)\b", "", s)
-    return re.sub(r"\s+", " ", s).strip()
-
-
-# Yahoo abbreviations that differ from the MLB Stats API ones (used only to
-# break ties when two players share a normalized name).
-YAHOO_TEAM_ALIAS = {"CWS": "CWS", "CHW": "CWS", "WAS": "WSH", "SD": "SD", "SF": "SF", "TB": "TB", "KC": "KC"}
-
-
 def sync_roster(team_key: str, cfg: dict | None = None) -> tuple[str, int, int, list]:
     """Fetch a roster, match each player to the DB, and store it.
 
     Returns (team_name, total, matched, unmatched_names).
     """
-    from . import db  # local import avoids a circular dependency
+    from . import db, match  # local import avoids a circular dependency
 
     cfg = cfg or load_cfg()
     meta = {t["team_key"]: t for t in get_teams(cfg)}.get(team_key, {})
@@ -211,23 +230,11 @@ def sync_roster(team_key: str, cfg: dict | None = None) -> tuple[str, int, int, 
     roster = get_roster(team_key, cfg)
 
     conn = db.connect()
-    by_name: dict[str, list] = {}
-    for pid, name, abbr in conn.execute(
-        "SELECT p.player_id, p.full_name, t.abbreviation "
-        "FROM players p LEFT JOIN teams t ON t.team_id = p.team_id"
-    ):
-        by_name.setdefault(normalize_name(name), []).append((pid, (abbr or "").upper()))
+    lookup = match.build_lookup(conn)
 
     rows, unmatched = [], []
     for i, pl in enumerate(roster):
-        cands = by_name.get(normalize_name(pl["name"]), [])
-        pid = None
-        if len(cands) == 1:
-            pid = cands[0][0]
-        elif len(cands) > 1:  # disambiguate shared names by MLB team
-            yt = YAHOO_TEAM_ALIAS.get((pl["team_abbr"] or "").upper(), (pl["team_abbr"] or "").upper())
-            hit = [c for c in cands if c[1] == yt]
-            pid = (hit[0][0] if hit else cands[0][0])
+        pid = match.match(lookup, pl["name"], pl["team_abbr"])
         if pid is None:
             unmatched.append(pl["name"])
         rows.append((team_key, team_name, season, i, pl["yahoo_id"], pl["name"], pid,

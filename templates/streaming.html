@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Streaming — {{ date }}{% endblock %}
+
+{% macro tier_badge(r) %}
+  {%- set tr = r['tier_rank'] -%}
+  {%- if tr is none -%}<span class="tier tier-na">No PL grade</span>
+  {%- else -%}<span class="tier tier-{{ tr }}">{{ r['tier'] }}</span>{%- endif -%}
+{% endmacro %}
+
+{% macro avail_badge(a) %}
+  {%- if a == 'mine' -%}<span class="av av-mine">On your team</span>
+  {%- elif a == 'available' -%}<span class="av av-fa">Available</span>
+  {%- else -%}<span class="av av-rost">Rostered</span>{%- endif -%}
+{% endmacro %}
+
+{% macro verdict(tr) %}
+  {%- if tr is none -%}<span class="verdict v-na">—</span>
+  {%- elif tr <= 1 -%}<span class="verdict v-start">START</span>
+  {%- elif tr == 2 -%}<span class="verdict v-risk">RISKY</span>
+  {%- else -%}<span class="verdict v-sit">SIT</span>{%- endif -%}
+{% endmacro %}
+
+{% macro statline(r) %}
+  {%- if r['era'] is not none -%}
+    {{ '%.2f'|format(r['era']) }} ERA · {{ '%.2f'|format(r['whip']) }} WHIP
+    · {{ '%.1f'|format(r['k9']) if r['k9'] is not none else '—' }} K/9
+    · {{ ip_str(r['outs']) }} IP
+  {%- else -%}<span class="muted">no {{ season }} MLB line yet</span>{%- endif -%}
+{% endmacro %}
+
+{% block content %}
+{% if not dates %}
+  <div class="empty" style="padding:3rem 0">
+    <h1>No streaming data yet</h1>
+    <p>Pull probable starters, Pitcher List tiers, and your league's free agents:</p>
+    <pre class="code">python -m fantasybb.streaming refresh</pre>
+  </div>
+{% else %}
+<h1 class="page-title">Streaming board</h1>
+<p class="muted" style="margin-top:-0.4rem">
+  Probable starters graded by <a href="https://pitcherlist.com/category/fantasy/starting-pitchers/sp-streamers/" target="_blank">Pitcher List</a> (Nick Pollack),
+  cross-checked against your league's free agents. Pick a day:
+</p>
+<div class="chips" style="margin-bottom:1.2rem">
+  {% for d in dates %}
+    <a class="chip {{ 'on' if d == date }}" href="?date={{ d }}">{{ d }}</a>
+  {% endfor %}
+</div>
+
+<h2 class="section-head">Your probable starters — start or sit</h2>
+{% if mine %}
+<div class="stream-list">
+  {% for r in mine %}
+  <div class="stream-card">
+    {{ verdict(r['tier_rank']) }}
+    <div class="sc-main">
+      <a href="{{ url_for('player', player_id=r['player_id']) }}?season={{ season }}">{{ r['name'] }}</a>
+      <span class="sc-matchup">{{ r['team'] }} {{ 'vs' if r['is_home'] else '@' }} {{ r['opp'] }}</span>
+      <div class="sc-stat">{{ statline(r) }}</div>
+    </div>
+    {{ tier_badge(r) }}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+  <p class="muted">None of your rostered pitchers are probable starters on {{ date }}.</p>
+{% endif %}
+
+<h2 class="section-head">Available to stream <span class="muted">(free agents, best matchups first)</span></h2>
+{% if available %}
+<div class="stream-list">
+  {% for r in available %}
+  <div class="stream-card">
+    {{ tier_badge(r) }}
+    <div class="sc-main">
+      <a href="{{ url_for('player', player_id=r['player_id']) }}?season={{ season }}">{{ r['name'] }}</a>
+      <span class="sc-matchup">{{ r['team'] }} {{ 'vs' if r['is_home'] else '@' }} {{ r['opp'] }}</span>
+      <div class="sc-stat">{{ statline(r) }}{% if r['rostership'] %} · {{ r['rostership'] }} rostered{% endif %}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+  <p class="muted">No available (free-agent) probable starters on {{ date }} — slim pickings.</p>
+{% endif %}
+
+<h2 class="section-head">All probable starters — {{ date }}</h2>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr>
+    <th class="txt">PL Tier</th><th class="txt">Pitcher</th><th class="txt">Matchup</th>
+    <th class="txt">Status</th><th class="num">GS</th><th class="num">IP</th>
+    <th class="num">ERA</th><th class="num">WHIP</th><th class="num">K/9</th><th class="txt">PL%</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td class="txt">{{ tier_badge(r) }}</td>
+      <td class="txt name"><a href="{{ url_for('player', player_id=r['player_id']) }}?season={{ season }}">{{ r['name'] }}</a></td>
+      <td class="txt">{{ r['team'] }} {{ 'vs' if r['is_home'] else '@' }} {{ r['opp'] }}</td>
+      <td class="txt">{{ avail_badge(r['avail']) }}</td>
+      <td>{{ r['gs'] if r['gs'] is not none else '—' }}</td>
+      <td>{{ ip_str(r['outs']) if r['outs'] is not none else '—' }}</td>
+      <td>{{ '%.2f'|format(r['era']) if r['era'] is not none else '—' }}</td>
+      <td>{{ '%.2f'|format(r['whip']) if r['whip'] is not none else '—' }}</td>
+      <td>{{ '%.1f'|format(r['k9']) if r['k9'] is not none else '—' }}</td>
+      <td class="txt muted">{{ r['rostership'] or '' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="margin-top:0.8rem; font-size:0.78rem">
+  Refresh daily with <code>python -m fantasybb.streaming refresh</code>.
+  Pitcher List's 3rd day is Pro-only, so only the next two days appear.
+</p>
+{% endif %}
+{% endblock %}

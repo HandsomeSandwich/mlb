@@ -83,6 +83,11 @@ Client**, redirect URI `https://localhost:8000`, **Fantasy Sports → Read**.
 * **Hitters / Pitchers** — sortable, filterable leaderboards (click any column
   header to sort; filter by team, position, min PA/IP; search by name).
 * **Hot / Cold** — rolling last-N-days form with a window OPS vs. season delta.
+* **Streaming** — upcoming probable SPs graded by Pitcher List (Nick Pollack)
+  tiers, cross-checked against your league's free agents, with a start/sit read
+  on your own arms. Refresh daily: `python -m fantasybb.streaming refresh`.
+* **Weekly** — a player's Mon–Sun weeks compared across seasons (2025 vs 2026),
+  color-graded by OPS/ERA, to spot when they run hot or cold each year.
 * **My Team** — your synced Yahoo roster with season stats, Statcast, IL tags,
   and a 5×5 category snapshot.
 * **Player page** — bio, per-season line, Statcast strip, and game log.

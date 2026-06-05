@@ -113,6 +113,41 @@ CREATE TABLE IF NOT EXISTS statcast_batting (
     PRIMARY KEY (player_id, season)
 );
 
+-- Pitcher List daily streamer tiers (scraped). One row per pitcher per day.
+CREATE TABLE IF NOT EXISTS pl_streamers (
+    game_date  TEXT,
+    name       TEXT,
+    player_id  INTEGER,
+    tier       TEXT,       -- Auto Start / Probably Start / Questionable Start / Do Not Start
+    tier_rank  INTEGER,    -- ordering of tiers (0 = best)
+    rank       INTEGER,    -- rank within the day
+    matchup    TEXT,       -- e.g. 'vs. CHW' or '@ DET'
+    opp        TEXT,
+    rostership TEXT,
+    PRIMARY KEY (game_date, name)
+);
+
+-- Probable starting pitchers for upcoming days (MLB Stats API).
+CREATE TABLE IF NOT EXISTS probable_starts (
+    game_date TEXT,
+    player_id INTEGER,     -- MLBAM id == our players.player_id
+    name      TEXT,
+    team      TEXT,
+    opp       TEXT,
+    is_home   INTEGER,
+    PRIMARY KEY (game_date, player_id)
+);
+
+-- Availability of players in a Yahoo league (free agent / waiver / owned).
+CREATE TABLE IF NOT EXISTS availability (
+    league_key TEXT,
+    name       TEXT,
+    player_id  INTEGER,
+    status     TEXT,       -- FA / W / (owned teams omitted)
+    position   TEXT,
+    PRIMARY KEY (league_key, name)
+);
+
 -- Synced Yahoo fantasy roster (matched to our players where possible).
 CREATE TABLE IF NOT EXISTS fantasy_roster (
     team_key   TEXT,

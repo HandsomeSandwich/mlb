@@ -60,6 +60,27 @@ class MLBClient:
     def boxscore(self, game_pk: int) -> dict:
         return self._get(f"game/{game_pk}/boxscore")
 
+    def probables(self, date: str) -> list[dict]:
+        """Probable starting pitchers for a date: id, name, team, opp, home/away."""
+        data = self._get("schedule", sportId=SPORT_ID, date=date,
+                         hydrate="probablePitcher,team")
+        out: list[dict] = []
+        for day in data.get("dates", []):
+            for g in day.get("games", []):
+                for side, opp, is_home in (("home", "away", 1), ("away", "home", 0)):
+                    pp = g["teams"][side].get("probablePitcher") or {}
+                    if not pp.get("id"):
+                        continue
+                    tm = g["teams"][side]["team"]
+                    op = g["teams"][opp]["team"]
+                    out.append({
+                        "game_date": date, "player_id": pp["id"], "name": pp.get("fullName"),
+                        "team": tm.get("abbreviation") or tm.get("name"),
+                        "opp": op.get("abbreviation") or op.get("name"),
+                        "is_home": is_home,
+                    })
+        return out
+
     def season_hitting(self, season: int, game_type: str = "R") -> list[dict]:
         return self._season_stats("hitting", season, game_type)
 

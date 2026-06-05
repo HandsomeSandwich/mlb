@@ -228,6 +228,106 @@ def my_team(conn, team_key: str, season: int):
     ).fetchall()
 
 
+def streaming_dates(conn):
+    return [r[0] for r in conn.execute(
+        "SELECT DISTINCT game_date FROM probable_starts ORDER BY game_date")]
+
+
+def streaming_league(conn):
+    row = conn.execute("SELECT team_key FROM fantasy_roster LIMIT 1").fetchone()
+    return row[0].rsplit(".t.", 1)[0] if row else None
+
+
+def streaming_board(conn, game_date: str, season: int, league_key: str | None):
+    """Probable starters for a date with Pollack tier, availability, and stats."""
+    return conn.execute(
+        """SELECT ps.name, ps.team, ps.opp, ps.is_home, ps.player_id,
+                  pl.tier, pl.tier_rank, pl.rank AS pl_rank, pl.matchup, pl.rostership,
+                  pit.era, pit.whip, pit.k9, pit.so, pit.gs, pit.outs, pit.w,
+                  CASE WHEN fr.player_id IS NOT NULL THEN 'mine'
+                       WHEN av.name IS NOT NULL THEN 'available'
+                       ELSE 'rostered' END AS avail
+           FROM probable_starts ps
+           LEFT JOIN pl_streamers pl
+                  ON pl.player_id = ps.player_id AND pl.game_date = ps.game_date
+           LEFT JOIN pitching_season pit
+                  ON pit.player_id = ps.player_id AND pit.season = ?
+           LEFT JOIN fantasy_roster fr ON fr.player_id = ps.player_id
+           LEFT JOIN availability av
+                  ON av.player_id = ps.player_id AND av.league_key = ?
+           WHERE ps.game_date = ?
+           ORDER BY pl.tier_rank IS NULL, pl.tier_rank, pl.rank, ps.name""",
+        (season, league_key, game_date),
+    ).fetchall()
+
+
+def roster_players(conn):
+    """Matched players on any synced roster (for the weekly-compare picker)."""
+    return conn.execute(
+        """SELECT DISTINCT fr.player_id, p.full_name, p.position
+           FROM fantasy_roster fr JOIN players p ON p.player_id = fr.player_id
+           ORDER BY p.full_name"""
+    ).fetchall()
+
+
+def _monday(d):
+    """Monday (date) of the ISO week containing date string d (YYYY-MM-DD)."""
+    import datetime as _dt
+    dt = _dt.date.fromisoformat(d)
+    return dt - _dt.timedelta(days=dt.weekday())
+
+
+def weekly_splits(conn, player_id: int, kind: str):
+    """Per-fantasy-week (Mon-Sun) aggregates for a player, grouped by season.
+
+    Returns {season: [ {week, start, end, ...stats} ]}. `kind` is 'bat' or 'pit'.
+    Weeks are numbered within each season (week 1 = opening week).
+    """
+    if kind == "pit":
+        sql = ("SELECT game_date, outs, w, sv, so, er, h, bb, hr "
+               "FROM pitching_games WHERE player_id=? ORDER BY game_date")
+        fields = ("outs", "w", "sv", "so", "er", "h", "bb", "hr")
+    else:
+        sql = ("SELECT game_date, pa, ab, r, h, doubles, triples, hr, rbi, "
+               "bb, so, sb, tb, hbp, sac_flies FROM batting_games "
+               "WHERE player_id=? ORDER BY game_date")
+        fields = ("pa", "ab", "r", "h", "doubles", "triples", "hr", "rbi",
+                  "bb", "so", "sb", "tb", "hbp", "sac_flies")
+
+    buckets: dict = {}  # (season, monday) -> sums
+    for row in conn.execute(sql, (player_id,)):
+        season = int(row["game_date"][:4])
+        mon = _monday(row["game_date"])
+        b = buckets.setdefault((season, mon), {f: 0 for f in fields})
+        for f in fields:
+            b[f] += row[f] or 0
+
+    out: dict = {}
+    for (season, mon), b in buckets.items():
+        out.setdefault(season, []).append((mon, b))
+    for season, weeks in out.items():
+        weeks.sort(key=lambda x: x[0])
+        result = []
+        for i, (mon, b) in enumerate(weeks, start=1):
+            import datetime as _dt
+            rec = {"week": i, "start": mon.isoformat(),
+                   "end": (mon + _dt.timedelta(days=6)).isoformat(), **b}
+            if kind == "pit":
+                ip = b["outs"] / 3
+                rec["ip"] = ip
+                rec["era"] = round(9 * b["er"] / ip, 2) if ip else None
+                rec["whip"] = round((b["h"] + b["bb"]) / ip, 2) if ip else None
+            else:
+                rec["avg"] = round(b["h"] / b["ab"], 3) if b["ab"] else None
+                obp_den = b["ab"] + b["bb"] + b["hbp"] + b["sac_flies"]
+                obp = (b["h"] + b["bb"] + b["hbp"]) / obp_den if obp_den else 0
+                slg = b["tb"] / b["ab"] if b["ab"] else 0
+                rec["ops"] = round(obp + slg, 3) if b["ab"] else None
+            result.append(rec)
+        out[season] = result
+    return out
+
+
 def db_status(conn):
     """Counts for the footer / status line so the user can see ingest progress."""
     g = lambda q: conn.execute(q).fetchone()[0]  # noqa: E731

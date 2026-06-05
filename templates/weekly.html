@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Weekly compare — {{ p['full_name'] if p else '' }}{% endblock %}
+
+{% macro hit_cell(c) %}
+  {% if c %}
+    {% set v = c['ops'] %}
+    {% set cls = 'ops-hot' if (v is not none and v >= 0.850) else ('ops-warm' if (v is not none and v >= 0.700) else 'ops-cold') %}
+    <div class="wk-dates">{{ c['start'][5:] }}–{{ c['end'][5:] }}</div>
+    <div class="wk-primary {{ cls if v is not none else '' }}">{{ '%.3f'|format(v) if v is not none else '—' }} <span>OPS</span></div>
+    <div class="wk-counts">{{ c['hr'] }}HR · {{ c['rbi'] }}RBI · {{ c['r'] }}R · {{ c['sb'] }}SB · {{ ('%.3f'|format(c['avg']))[1:] if c['avg'] is not none else '—' }} AVG</div>
+    <div class="wk-counts muted">{{ c['pa'] }} PA</div>
+  {% else %}<div class="wk-empty">—</div>{% endif %}
+{% endmacro %}
+
+{% macro pit_cell(c) %}
+  {% if c %}
+    {% set v = c['era'] %}
+    {% set cls = 'era-good' if (v is not none and v <= 3.25) else ('era-ok' if (v is not none and v <= 4.25) else 'era-bad') %}
+    <div class="wk-dates">{{ c['start'][5:] }}–{{ c['end'][5:] }}</div>
+    <div class="wk-primary {{ cls if v is not none else '' }}">{{ '%.2f'|format(v) if v is not none else '—' }} <span>ERA</span></div>
+    <div class="wk-counts">{{ ip_str(c['outs']) }}IP · {{ c['so'] }}K · {{ c['w'] }}W · {{ c['sv'] }}SV</div>
+    <div class="wk-counts muted">{{ '%.2f'|format(c['whip']) if c['whip'] is not none else '—' }} WHIP</div>
+  {% else %}<div class="wk-empty">—</div>{% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1 class="page-title">Weekly comparison</h1>
+
+<form class="filters" method="get">
+  <label>My roster
+    <select onchange="if(this.value) location='{{ url_for('weekly') }}?player_id='+this.value">
+      <option value="">— pick a player —</option>
+      {% for pl in roster %}
+        <option value="{{ pl['player_id'] }}" {{ 'selected' if pid == pl['player_id'] }}>{{ pl['full_name'] }}{% if pl['position'] %} ({{ pl['position'] }}){% endif %}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>…or search anyone
+    <input type="text" name="q" value="{{ q or '' }}" placeholder="player name">
+  </label>
+  <button type="submit">Go</button>
+</form>
+
+{% if not p %}
+  <p class="empty">Pick a player above to see their week-by-week stats across seasons.</p>
+{% elif not seasons %}
+  <p class="empty">No game logs for {{ p['full_name'] }}.</p>
+{% else %}
+<div class="player-head" style="margin-bottom:1rem">
+  <h2 style="margin:0">{{ p['full_name'] }}
+    <span class="muted">— {{ 'pitching' if kind == 'pit' else 'hitting' }} by fantasy week</span></h2>
+  <p class="muted" style="margin:0.25rem 0 0">
+    Each cell = one Mon–Sun week. Compare a row across years to spot patterns
+    in <b>when</b> they run hot or cold.
+  </p>
+</div>
+
+<div class="table-wrap">
+<table class="stats weekly">
+  <thead><tr>
+    <th class="txt">Week</th>
+    {% for s in seasons %}<th class="txt">{{ s }}</th>{% endfor %}
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="txt wk-num">W{{ row['week'] }}</td>
+      {% for s in seasons %}
+        <td class="wk-cell">{{ pit_cell(row['cells'][s]) if kind == 'pit' else hit_cell(row['cells'][s]) }}</td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

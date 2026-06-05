@@ -183,6 +183,56 @@ def myteam():
     )
 
 
+@app.route("/streaming")
+def streaming():
+    conn = get_db()
+    yr = selected_season(conn)
+    dates = Q.streaming_dates(conn)
+    if not dates:
+        return render_template("streaming.html", dates=[], rows=None)
+    date = request.args.get("date") or dates[0]
+    league = Q.streaming_league(conn)
+    rows = Q.streaming_board(conn, date, yr, league)
+    mine = [r for r in rows if r["avail"] == "mine"]
+    available = [r for r in rows if r["avail"] == "available"]
+    return render_template(
+        "streaming.html", dates=dates, date=date, rows=rows,
+        mine=mine, available=available,
+    )
+
+
+@app.route("/weekly")
+def weekly():
+    conn = get_db()
+    roster = Q.roster_players(conn)
+    q = request.args.get("q") or None
+    pid = request.args.get("player_id", type=int)
+    if not pid and q:
+        row = conn.execute(
+            "SELECT player_id FROM players WHERE full_name LIKE ? ORDER BY full_name LIMIT 1",
+            (f"%{q}%",)).fetchone()
+        pid = row[0] if row else None
+    if not pid and roster:
+        pid = roster[0]["player_id"]
+
+    p = Q.player(conn, pid) if pid else None
+    kind = "bat"
+    if p:
+        has_bat = conn.execute(
+            "SELECT 1 FROM batting_games WHERE player_id=? LIMIT 1", (pid,)).fetchone()
+        if p["position"] == "P" or not has_bat:
+            kind = "pit"
+    data = Q.weekly_splits(conn, pid, kind) if pid else {}
+    seasons = sorted(data.keys())
+    week_nums = sorted({w["week"] for ws in data.values() for w in ws})
+    idx = {(s, w["week"]): w for s, ws in data.items() for w in ws}
+    rows = [{"week": wn, "cells": {s: idx.get((s, wn)) for s in seasons}} for wn in week_nums]
+    return render_template(
+        "weekly.html", roster=roster, p=p, pid=pid, kind=kind,
+        seasons=seasons, rows=rows, q=q,
+    )
+
+
 @app.route("/player/<int:player_id>")
 def player(player_id):
     conn = get_db()
