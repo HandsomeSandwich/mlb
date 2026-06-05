@@ -499,6 +499,36 @@ def transactions_analysis(conn, league_key):
     }
 
 
+def opponent_behavior(conn, league_key):
+    """How each opponent's transaction activity changes the week they play me."""
+    txns = behavior.load_txns(conn, league_key)
+    sched = [dict(r) for r in conn.execute(
+        "SELECT week, week_start, week_end, opp_name, status FROM my_schedule "
+        "WHERE league_key=? ORDER BY week", (league_key,))]
+    rows, weeks_with_data = behavior.opponent_vs_me(txns, sched)
+    return {"rows": rows, "weeks_with_data": weeks_with_data}
+
+
+SUSPECTED_PAIRS = [("The Straight of Collins", "Bad News Bards")]
+SUSPECTED_HUB = "Forgive Them Judge"
+
+
+def collusion_view(conn, league_key, focus=None):
+    txns = behavior.load_txns(conn, league_key)
+    lookup = match.build_lookup(conn)
+    pairs, hubs = behavior.collusion_lens(txns, lambda n: _player_value(conn, lookup, n))
+
+    def find(a, b):
+        key = tuple(sorted((a, b)))
+        return next((p for p in pairs if tuple(sorted((p["a"], p["b"]))) == key), None)
+
+    focus = focus or SUSPECTED_PAIRS
+    focus_cards = [{"a": a, "b": b, "pair": find(a, b)} for a, b in focus]
+    hub_pairs = [p for p in pairs if SUSPECTED_HUB in (p["a"], p["b"])]
+    return {"pairs": pairs, "hubs": hubs, "focus": focus_cards,
+            "hub_name": SUSPECTED_HUB, "hub_pairs": hub_pairs}
+
+
 def db_status(conn):
     """Counts for the footer / status line so the user can see ingest progress."""
     g = lambda q: conn.execute(q).fetchone()[0]  # noqa: E731

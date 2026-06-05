@@ -226,6 +226,25 @@ def transactions():
     return render_template(
         "transactions.html", leagues=leagues, league_key=league_key, meta=meta,
         a=Q.transactions_analysis(conn, league_key),
+        opp=Q.opponent_behavior(conn, league_key),
+    )
+
+
+@app.route("/collusion")
+def collusion():
+    conn = get_db()
+    leagues = Q.league_keys(conn)
+    if not leagues:
+        return render_template("collusion.html", leagues=[], cv=None, meta=None)
+    league_key = request.args.get("league") or leagues[0]
+    focus = None
+    a, b = request.args.get("a"), request.args.get("b")
+    if a and b:
+        focus = [(a, b)]
+    meta, _ = Q.league_info(conn, league_key)
+    return render_template(
+        "collusion.html", leagues=leagues, league_key=league_key, meta=meta,
+        cv=Q.collusion_view(conn, league_key, focus),
     )
 
 

@@ -8,6 +8,7 @@ anyone of collusion. Treat every signal as a prompt to investigate, not proof.
 from __future__ import annotations
 
 import bisect
+import datetime as _dt
 from collections import defaultdict
 
 POOLS = {None, "", "waivers", "freeagents", "commish"}
@@ -138,6 +139,135 @@ def trades(txns, value_fn) -> list[dict]:
         out.append({"ts": t["ts"], "sides": side_list, "value_gap": gap})
     out.sort(key=lambda x: x["ts"], reverse=True)
     return out
+
+
+def _txn_week(date_iso, weeks):
+    for w in weeks:
+        if w["start"] and w["end"] and w["start"] <= date_iso <= w["end"]:
+            return w["week"]
+    return None
+
+
+def team_week_activity(txns, weeks):
+    """{team_name: {week: add/drop count}} bucketed by league week dates."""
+    counts = defaultdict(lambda: defaultdict(int))
+    for t in txns:
+        if t["type"] == "trade":
+            continue
+        d = _dt.datetime.fromtimestamp(t["ts"]).date().isoformat()
+        wk = _txn_week(d, weeks)
+        if wk is None:
+            continue
+        for tm in t["acting_teams"]:
+            counts[tm][wk] += 1
+    return counts
+
+
+def opponent_vs_me(txns, schedule):
+    """Does each opponent transact more in the week they play me than usual?
+
+    `schedule` rows: {week, week_start, week_end, opp_name, status}. Returns one
+    record per opponent comparing their activity in our matchup week(s) to their
+    baseline (their other weeks that have transaction data).
+    """
+    weeks = [{"week": s["week"], "start": s["week_start"], "end": s["week_end"]}
+             for s in schedule]
+    counts = team_week_activity(txns, weeks)
+    weeks_with_data = sorted({wk for tm in counts for wk in counts[tm]})
+
+    opp_weeks = defaultdict(list)
+    for s in schedule:
+        if s["status"] in ("postevent", "midevent") and s["opp_name"]:
+            opp_weeks[s["opp_name"]].append(s["week"])
+
+    out = []
+    for oname, wks in opp_weeks.items():
+        tc = counts.get(oname, {})
+        vs_set = set(wks)
+        base_weeks = [w for w in weeks_with_data if w not in vs_set]
+        base = (sum(tc.get(w, 0) for w in base_weeks) / len(base_weeks)) if base_weeks else 0
+        vs = [(w, tc.get(w, 0)) for w in wks if w in weeks_with_data]
+        vs_avg = (sum(c for _, c in vs) / len(vs)) if vs else None
+        ramp = (vs_avg / base) if (base and vs_avg is not None) else None
+        out.append({
+            "opp": oname, "weeks": [w for w, _ in vs], "vs_counts": vs,
+            "vs_avg": round(vs_avg, 1) if vs_avg is not None else None,
+            "baseline": round(base, 1), "ramp": round(ramp, 2) if ramp else None,
+        })
+    out.sort(key=lambda x: (x["ramp"] or 0), reverse=True)
+    return out, weeks_with_data
+
+
+def collusion_lens(txns, value_fn, feed_gap_days=7):
+    """Directional A↔B coordination metrics: feeding, trade value flow, timing."""
+    gap = feed_gap_days * 86400
+    feed = defaultdict(int)
+    feed_players = defaultdict(list)
+    drops, adds_by_player = [], defaultdict(list)
+    for t in txns:
+        for mv in t["moves"]:
+            if mv["move_type"] == "drop" and mv["source_team"] not in POOLS:
+                drops.append((mv["player_name"], mv["source_team"], t["ts"]))
+            if mv["move_type"] == "add" and mv["dest_team"] not in POOLS:
+                adds_by_player[mv["player_name"]].append((mv["dest_team"], t["ts"]))
+    for pn, dteam, dts in drops:
+        for ateam, ats in adds_by_player.get(pn, []):
+            if ateam != dteam and 0 <= ats - dts <= gap:
+                feed[(dteam, ateam)] += 1
+                if pn not in feed_players[(dteam, ateam)]:
+                    feed_players[(dteam, ateam)].append(pn)
+
+    trade_rows = trades(txns, value_fn)
+    tp_cnt = defaultdict(int)
+    tp_val = defaultdict(lambda: defaultdict(float))
+    for tr in trade_rows:
+        if len(tr["sides"]) != 2:
+            continue
+        a, b = sorted(s["team"] for s in tr["sides"])
+        tp_cnt[(a, b)] += 1
+        for s in tr["sides"]:
+            tp_val[(a, b)][s["team"]] += s["value"]
+
+    timing = {}
+    for p in timing_similarity(txns, window=900):
+        timing[tuple(sorted((p["a"], p["b"])))] = p["co"]
+
+    teams = set()
+    for (d, a) in feed:
+        teams.update((d, a))
+    for (a, b) in tp_cnt:
+        teams.update((a, b))
+    teams = sorted(teams)
+
+    pairs = []
+    for i in range(len(teams)):
+        for j in range(i + 1, len(teams)):
+            A, B = teams[i], teams[j]
+            fab, fba = feed.get((A, B), 0), feed.get((B, A), 0)
+            tc = tp_cnt.get((A, B), 0)
+            tv = tp_val.get((A, B), {})
+            vA, vB = round(tv.get(A, 0), 1), round(tv.get(B, 0), 1)
+            co = timing.get((A, B), 0)
+            if fab + fba + tc + co == 0:
+                continue
+            score = (fab + fba) + tc * 3 + co * 0.5 + abs(vA - vB) * 0.04
+            pairs.append({
+                "a": A, "b": B, "feed_ab": fab, "feed_ba": fba,
+                "feed_players_ab": feed_players.get((A, B), [])[:5],
+                "feed_players_ba": feed_players.get((B, A), [])[:5],
+                "trades": tc, "val_a": vA, "val_b": vB,
+                "val_gap": round(abs(vA - vB), 1), "timing_co": co,
+                "score": round(score, 1),
+            })
+    pairs.sort(key=lambda p: p["score"], reverse=True)
+
+    hub = defaultdict(float)
+    for p in pairs:
+        hub[p["a"]] += p["score"] / 2
+        hub[p["b"]] += p["score"] / 2
+    hubs = sorted(({"team": k, "score": round(v, 1)} for k, v in hub.items()),
+                  key=lambda x: x["score"], reverse=True)
+    return pairs, hubs
 
 
 def trade_partner_counts(trade_rows) -> list[dict]:

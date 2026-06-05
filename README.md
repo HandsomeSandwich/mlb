@@ -94,7 +94,12 @@ Client**, redirect URI `https://localhost:8000`, **Fantasy Sports → Read**.
   plus where you rank in every scoring category across the league.
 * **Transactions** — behavioral analysis of league adds/drops/trades: activity
   timeline, drop→add "feeding", synchronized waiver timing, trade value reads,
-  and surfaced *signals* (patterns for review — not proof of collusion).
+  surfaced *signals*, and **how each opponent's activity ramps the week they
+  play you**.
+* **Collusion lens** — directional A↔B coordination (feeding asymmetry, trade
+  value flow, tight timing), hub ranking, and focused evidence cards for
+  suspected pairs (`?a=Team+One&b=Team+Two`). Framed as patterns for review,
+  with the activity confound called out — *not* proof of anything.
 
 League pages need a one-time-per-refresh pull:
 

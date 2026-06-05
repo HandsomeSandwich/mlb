@@ -28,6 +28,31 @@
 </div>
 {% endif %}
 
+{% if opp and opp['rows'] %}
+<h2 class="section-head">Opponent activity when they face you</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:70ch">
+  Moves each opponent made in the week they played the Pawnee Raccoons vs their
+  baseline in other weeks. <b>Ramp &gt; 1</b> means they got busier against you —
+  loading up, streaming, chasing categories. <a href="{{ url_for('collusion') }}">See the collusion lens →</a>
+</p>
+<div class="table-wrap" style="max-width:640px">
+<table class="stats">
+  <thead><tr><th class="txt">Opponent</th><th class="txt">Wk(s)</th><th class="num">Vs you</th><th class="num">Baseline</th><th class="num">Ramp</th></tr></thead>
+  <tbody>
+  {% for r in opp['rows'] %}
+    <tr>
+      <td class="txt name">{{ r['opp'] }}</td>
+      <td class="txt muted">{{ r['weeks']|join(', ') }}</td>
+      <td>{{ r['vs_avg'] if r['vs_avg'] is not none else '—' }}</td>
+      <td>{{ r['baseline'] }}</td>
+      <td class="{{ 'hl' if r['ramp'] and r['ramp'] >= 1.5 }}">{{ ('%.2f×'|format(r['ramp'])) if r['ramp'] else '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
 <h2 class="section-head">Activity over time</h2>
 <div class="timeline">
   {% for d, n in a['timeline'] %}

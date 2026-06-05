@@ -122,6 +122,18 @@ CREATE TABLE IF NOT EXISTS league_meta (
     current_week INTEGER
 );
 
+-- My team's matchup schedule (opponent + week dates) for "vs me" analysis.
+CREATE TABLE IF NOT EXISTS my_schedule (
+    league_key   TEXT,
+    week         INTEGER,
+    week_start   TEXT,
+    week_end     TEXT,
+    opp_team_key TEXT,
+    opp_name     TEXT,
+    status       TEXT,
+    PRIMARY KEY (league_key, week)
+);
+
 -- Yahoo league scoring categories.
 CREATE TABLE IF NOT EXISTS league_categories (
     league_key   TEXT,

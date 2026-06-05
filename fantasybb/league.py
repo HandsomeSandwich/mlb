@@ -133,38 +133,74 @@ def fetch_scoreboard(lk, cfg, week=None):
     return out
 
 
-def fetch_transactions(lk, cfg, count=200):
-    parts = _league_parts(api_get(f"league/{lk}/transactions;count={count}", cfg))
-    tx = _find(parts, "transactions")
+def fetch_schedule(team_key, cfg, my_keys):
+    """My team's full matchup schedule: opponent + week dates per week."""
+    parts = api_get(f"team/{team_key}/matchups", cfg)["fantasy_content"]["team"]
+    mus = _find(parts, "matchups")
     out = []
-    for t in _coll(tx):
-        tr = t["transaction"]
-        meta = tr[0] if isinstance(tr, list) else tr
-        moves = []
-        players = tr[1].get("players") if isinstance(tr, list) and len(tr) > 1 and isinstance(tr[1], dict) else None
-        for pl in _coll(players or {}):
-            pnode = pl["player"]
-            pm = _flatten(pnode[0])
-            nm = pm.get("name", {})
-            name = nm.get("full") if isinstance(nm, dict) else nm
-            td = None
-            for part in pnode[1:]:
-                if isinstance(part, dict) and "transaction_data" in part:
-                    td = part["transaction_data"]
-                    td = td[0] if isinstance(td, list) else td
-            td = td or {}
-            moves.append({
-                "player_name": name,
-                "move_type": td.get("type"),
-                "source_team": td.get("source_team_name") or td.get("source_type"),
-                "dest_team": td.get("destination_team_name") or td.get("destination_type"),
-            })
-        out.append({
-            "txn_key": meta.get("transaction_key"), "type": meta.get("type"),
-            "status": meta.get("status"), "ts": int(meta.get("timestamp") or 0),
-            "moves": moves,
-        })
+    for mw in _coll(mus or {}):
+        m = mw["matchup"]
+        opp_key = opp_name = None
+        for t in _coll(m["0"]["teams"]):
+            meta = _team_meta(t["team"])
+            if meta.get("team_key") not in my_keys:
+                opp_key, opp_name = meta.get("team_key"), meta.get("name")
+        out.append({"week": int(m.get("week") or 0), "week_start": m.get("week_start"),
+                    "week_end": m.get("week_end"), "opp_team_key": opp_key,
+                    "opp_name": opp_name, "status": m.get("status")})
     return out
+
+
+def fetch_transactions(lk, cfg, max_txns=600):
+    """Paginate the transaction log for deeper history."""
+    out = []
+    seen = set()
+    start = 0
+    while len(out) < max_txns:
+        parts = _league_parts(api_get(f"league/{lk}/transactions;start={start};count=25", cfg))
+        tx = _find(parts, "transactions")
+        page = _coll(tx or {})
+        if not page:
+            break
+        for t in page:
+            _accumulate_txn(t, out, seen)
+        if len(page) < 25:
+            break
+        start += 25
+    return out
+
+
+def _accumulate_txn(t, out, seen):
+    tr = t["transaction"]
+    meta = tr[0] if isinstance(tr, list) else tr
+    key = meta.get("transaction_key")
+    if not key or key in seen:
+        return
+    seen.add(key)
+    moves = []
+    players = tr[1].get("players") if isinstance(tr, list) and len(tr) > 1 and isinstance(tr[1], dict) else None
+    for pl in _coll(players or {}):
+        pnode = pl["player"]
+        pm = _flatten(pnode[0])
+        nm = pm.get("name", {})
+        name = nm.get("full") if isinstance(nm, dict) else nm
+        td = None
+        for part in pnode[1:]:
+            if isinstance(part, dict) and "transaction_data" in part:
+                td = part["transaction_data"]
+                td = td[0] if isinstance(td, list) else td
+        td = td or {}
+        moves.append({
+            "player_name": name,
+            "move_type": td.get("type"),
+            "source_team": td.get("source_team_name") or td.get("source_type"),
+            "dest_team": td.get("destination_team_name") or td.get("destination_type"),
+        })
+    out.append({
+        "txn_key": key, "type": meta.get("type"),
+        "status": meta.get("status"), "ts": int(meta.get("timestamp") or 0),
+        "moves": moves,
+    })
 
 
 # --------------------------------------------------------------------------- #
@@ -187,6 +223,8 @@ def refresh(league_key=None) -> dict:
     week = int(meta.get("current_week") or 0) or None
     scoreboard = fetch_scoreboard(league_key, cfg, week)
     txns = fetch_transactions(league_key, cfg)
+    my_team_key = next(iter(my_keys), None)
+    schedule = fetch_schedule(my_team_key, cfg, my_keys) if my_team_key else []
 
     lookup = match.build_lookup(conn)
     with conn:
@@ -195,6 +233,14 @@ def refresh(league_key=None) -> dict:
             "num_teams, current_week) VALUES (?,?,?,?,?)",
             (league_key, meta.get("name"), meta.get("scoring_type"),
              int(meta.get("num_teams") or 0), week))
+        conn.execute("DELETE FROM my_schedule WHERE league_key=?", (league_key,))
+        for s in schedule:
+            conn.execute(
+                "INSERT INTO my_schedule (league_key, week, week_start, week_end, "
+                "opp_team_key, opp_name, status) VALUES (?,?,?,?,?,?,?)",
+                (league_key, s["week"], s["week_start"], s["week_end"],
+                 s["opp_team_key"], s["opp_name"], s["status"]))
+
         conn.execute("DELETE FROM league_categories WHERE league_key=?", (league_key,))
         conn.executemany(
             "INSERT INTO league_categories (league_key, stat_id, display_name, name, "

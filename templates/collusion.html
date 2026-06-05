@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Collusion lens{% endblock %}
+
+{% macro pair_evidence(p, hub=None) %}
+  {% if not p %}
+    <p class="muted">No direct adds/drops/trades between these two in the data — that itself is mild evidence <em>against</em> coordination.</p>
+  {% else %}
+    {% set other_a = p['a'] %}{% set other_b = p['b'] %}
+    <div class="ev-grid">
+      <div class="ev"><b>{{ p['feed_ab'] }}</b><span>{{ p['a'] }} drops → {{ p['b'] }} adds</span></div>
+      <div class="ev"><b>{{ p['feed_ba'] }}</b><span>{{ p['b'] }} drops → {{ p['a'] }} adds</span></div>
+      <div class="ev"><b>{{ p['trades'] }}</b><span>trades</span></div>
+      <div class="ev"><b>{{ p['timing_co'] }}</b><span>moves within 15 min</span></div>
+      {% if p['trades'] %}<div class="ev"><b>~{{ p['val_a'] }} / {{ p['val_b'] }}</b><span>trade value {{ p['a'] }} / {{ p['b'] }}</span></div>{% endif %}
+    </div>
+    {% if p['feed_players_ab'] %}<div class="ev-players">{{ p['b'] }} picked up from {{ p['a'] }}: {{ p['feed_players_ab']|join(', ') }}</div>{% endif %}
+    {% if p['feed_players_ba'] %}<div class="ev-players">{{ p['a'] }} picked up from {{ p['b'] }}: {{ p['feed_players_ba']|join(', ') }}</div>{% endif %}
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+{% if not cv %}
+  <div class="empty" style="padding:3rem 0"><h1>No league data</h1>
+    <pre class="code">python -m fantasybb.league refresh</pre></div>
+{% else %}
+<h1 class="page-title">Collusion lens <span class="muted">— {{ meta['name'] if meta }}</span></h1>
+<div class="disclaimer">
+  ⚖️ <b>Read this first.</b> These are <b>behavioral patterns, not proof.</b> The single
+  biggest confound: the <b>most active managers mechanically overlap the most</b> —
+  two people who churn the waiver wire will pick up each other's drops a lot without
+  any coordination. Weigh these signals against activity (see the
+  <a href="{{ url_for('transactions') }}">activity table</a>), and treat everything here as
+  questions to ask, not conclusions.
+</div>
+
+<h2 class="section-head">Your suspicions</h2>
+{% for f in cv['focus'] %}
+<div class="focus-card">
+  <h3>{{ f['a'] }} &nbsp;↔&nbsp; {{ f['b'] }}</h3>
+  {{ pair_evidence(f['pair']) }}
+</div>
+{% endfor %}
+
+<div class="focus-card">
+  <h3>Is {{ cv['hub_name'] }} a hub?</h3>
+  <p class="muted" style="margin-top:-0.3rem">Its coordination signal with every other team, strongest first. A manager running multiple teams tends to show lopsided feeding/value toward the team(s) they control.</p>
+  <table class="stats">
+    <thead><tr><th class="txt">Other team</th><th class="num">Feed → them</th><th class="num">Feed → {{ cv['hub_name'][:6] }}</th><th class="num">Trades</th><th class="num">Val gap</th><th class="num">Timing</th><th class="num">Score</th></tr></thead>
+    <tbody>
+    {% for p in cv['hub_pairs'] %}
+      {% set them = p['b'] if p['a'] == cv['hub_name'] else p['a'] %}
+      {% set feed_to_them = p['feed_ab'] if p['a'] == cv['hub_name'] else p['feed_ba'] %}
+      {% set feed_to_hub = p['feed_ba'] if p['a'] == cv['hub_name'] else p['feed_ab'] %}
+      <tr>
+        <td class="txt name"><a href="?a={{ cv['hub_name']|urlencode }}&b={{ them|urlencode }}">{{ them }}</a></td>
+        <td>{{ feed_to_them }}</td><td>{{ feed_to_hub }}</td>
+        <td class="{{ 'hl' if p['trades'] }}">{{ p['trades'] }}</td>
+        <td>{{ p['val_gap'] or '—' }}</td><td>{{ p['timing_co'] }}</td>
+        <td class="hl">{{ p['score'] }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 class="section-head">All coordinated pairs <span class="muted">(by combined signal)</span></h2>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr><th class="txt">Team A</th><th class="txt">Team B</th><th class="num">A→B feed</th><th class="num">B→A feed</th><th class="num">Trades</th><th class="num">Val gap</th><th class="num">≤15min</th><th class="num">Score</th></tr></thead>
+  <tbody>
+  {% for p in cv['pairs'][:18] %}
+    <tr>
+      <td class="txt name"><a href="?a={{ p['a']|urlencode }}&b={{ p['b']|urlencode }}">{{ p['a'] }}</a></td>
+      <td class="txt">{{ p['b'] }}</td>
+      <td>{{ p['feed_ab'] }}</td><td>{{ p['feed_ba'] }}</td>
+      <td class="{{ 'hl' if p['trades'] }}">{{ p['trades'] }}</td>
+      <td>{{ p['val_gap'] or '—' }}</td><td>{{ p['timing_co'] }}</td>
+      <td class="hl">{{ p['score'] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2 class="section-head">Hub ranking <span class="muted">(total coordination involvement)</span></h2>
+<div class="hub-bars">
+  {% set top = cv['hubs'][0]['score'] if cv['hubs'] else 1 %}
+  {% for h in cv['hubs'] %}
+    <div class="hub-row">
+      <span class="hub-name">{{ h['team'] }}</span>
+      <span class="hub-bar"><span style="width:{{ (h['score']/top*100)|round|int }}%"></span></span>
+      <span class="hub-score">{{ h['score'] }}</span>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
