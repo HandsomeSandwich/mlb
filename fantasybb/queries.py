@@ -5,6 +5,11 @@ input) so the sort param can't be used for SQL injection.
 """
 from __future__ import annotations
 
+import datetime as _dt
+from collections import defaultdict
+
+from . import behavior, match
+
 # column -> SQL expression, for each leaderboard. Keys are what the UI sends.
 HITTER_SORTS = {
     "name": "p.full_name", "team": "t.abbreviation", "g": "b.g", "pa": "b.pa",
@@ -326,6 +331,172 @@ def weekly_splits(conn, player_id: int, kind: str):
             result.append(rec)
         out[season] = result
     return out
+
+
+def league_keys(conn):
+    return [r[0] for r in conn.execute("SELECT league_key FROM league_meta")]
+
+
+def league_info(conn, league_key):
+    meta = conn.execute("SELECT * FROM league_meta WHERE league_key=?", (league_key,)).fetchone()
+    mine = conn.execute(
+        "SELECT * FROM league_teams WHERE league_key=? AND is_mine=1", (league_key,)).fetchone()
+    return meta, mine
+
+
+def _scoring_cats(conn, league_key):
+    return conn.execute(
+        "SELECT stat_id, display_name, is_pitching, sort_order FROM league_categories "
+        "WHERE league_key=? ORDER BY ord", (league_key,)).fetchall()
+
+
+def matchup_view(conn, league_key):
+    """My current-week H2H matchup, category by category vs my opponent."""
+    mine = conn.execute(
+        "SELECT * FROM matchup_team WHERE league_key=? AND is_mine=1 "
+        "ORDER BY week DESC LIMIT 1", (league_key,)).fetchone()
+    if not mine:
+        return None
+    week, my_key, opp_key = mine["week"], mine["team_key"], mine["opp_team_key"]
+    names = dict(conn.execute(
+        "SELECT team_key, name FROM league_teams WHERE league_key=?", (league_key,)).fetchall())
+
+    def vals(team_key):
+        return {r["stat_id"]: (r["value"], r["win"]) for r in conn.execute(
+            "SELECT stat_id, value, win FROM matchup_category WHERE league_key=? "
+            "AND week=? AND team_key=?", (league_key, week, team_key))}
+
+    mv, ov = vals(my_key), vals(opp_key)
+    rows, won, lost, tied = [], 0, 0, 0
+    for c in _scoring_cats(conn, league_key):
+        sid = c["stat_id"]
+        my_v, win = mv.get(sid, (None, None))
+        opp_v = ov.get(sid, (None, None))[0]
+        if win == 1:
+            won += 1
+        elif win == 0:
+            lost += 1
+        elif sid in mv:
+            tied += 1
+        rows.append({"label": c["display_name"], "is_pitching": c["is_pitching"],
+                     "my_value": my_v, "opp_value": opp_v, "win": win})
+    return {
+        "week": week, "my_name": names.get(my_key), "opp_name": names.get(opp_key),
+        "my_points": mine["points"], "rows": rows, "won": won, "lost": lost, "tied": tied,
+    }
+
+
+def league_ranks(conn, league_key):
+    """For each scoring category: every team's total, with my team's rank."""
+    teams = {r["team_key"]: (r["name"], r["is_mine"]) for r in conn.execute(
+        "SELECT team_key, name, is_mine FROM league_teams WHERE league_key=?", (league_key,))}
+    out = []
+    for c in _scoring_cats(conn, league_key):
+        sid, hi_better = c["stat_id"], (c["sort_order"] == 1)
+        vals = conn.execute(
+            "SELECT team_key, value, value_str FROM team_category "
+            "WHERE league_key=? AND stat_id=?", (league_key, sid)).fetchall()
+        ranked = sorted(
+            [v for v in vals if v["value"] is not None],
+            key=lambda v: v["value"], reverse=hi_better)
+        n = len(ranked)
+        cells, my_rank, my_str = [], None, None
+        for i, v in enumerate(ranked, start=1):
+            name, is_mine = teams.get(v["team_key"], ("?", 0))
+            if is_mine:
+                my_rank, my_str = i, v["value_str"]
+            cells.append({"rank": i, "name": name, "value": v["value_str"],
+                          "is_mine": is_mine, "pct": (n - i) / (n - 1) if n > 1 else 0.5})
+        out.append({"label": c["display_name"], "is_pitching": c["is_pitching"],
+                    "n": n, "my_rank": my_rank, "my_value": my_str, "cells": cells})
+    return out
+
+
+def _player_value(conn, lookup, name):
+    """Rough one-number 2026 fantasy value + a short stat line, for trade reads."""
+    pid = match.match(lookup, name or "")
+    if not pid:
+        return None, None
+    pos = conn.execute("SELECT position FROM players WHERE player_id=?", (pid,)).fetchone()
+    is_pit = bool(pos and pos[0] == "P")
+    if is_pit:
+        p = conn.execute("SELECT w,sv,so,era,whip FROM pitching_season WHERE player_id=? "
+                         "AND season=2026", (pid,)).fetchone()
+        if p and (p["so"] or p["w"]):
+            val = ((p["w"] or 0) * 4 + (p["sv"] or 0) * 3 + (p["so"] or 0) * 0.4
+                   - ((p["era"] or 4) - 4) * 8 - ((p["whip"] or 1.25) - 1.25) * 30)
+            return round(val, 1), f"{p['w']}W {p['sv']}SV {p['so']}K {p['era']}ERA"
+    b = conn.execute("SELECT hr,r,rbi,sb,ops FROM batting_season WHERE player_id=? "
+                     "AND season=2026", (pid,)).fetchone()
+    if b and b["ops"] is not None:
+        val = ((b["hr"] or 0) * 3 + (b["r"] or 0) + (b["rbi"] or 0) + (b["sb"] or 0) * 2
+               + ((b["ops"] or 0.7) - 0.7) * 120)
+        return round(val, 1), f"{b['hr']}HR {b['r']}R {b['rbi']}RBI {b['sb']}SB"
+    return None, None
+
+
+def _txn_desc(t):
+    adds = [m["player_name"] for m in t["moves"] if m["move_type"] == "add"]
+    drops = [m["player_name"] for m in t["moves"] if m["move_type"] == "drop"]
+    if t["type"] == "trade":
+        return "TRADE: " + " ↔ ".join(sorted(t["acting_teams"]))
+    team = next(iter(t["acting_teams"]), "?")
+    parts = []
+    if adds:
+        parts.append("added " + ", ".join(adds))
+    if drops:
+        parts.append("dropped " + ", ".join(drops))
+    return f"{team} — " + "; ".join(parts)
+
+
+def transactions_analysis(conn, league_key):
+    txns = behavior.load_txns(conn, league_key)
+    lookup = match.build_lookup(conn)
+    activity = behavior.team_activity(txns)
+    timing = behavior.timing_similarity(txns)
+    feeding = behavior.drop_add_feeding(txns)
+    trade_rows = behavior.trades(txns, lambda n: _player_value(conn, lookup, n))
+    partners = behavior.trade_partner_counts(trade_rows)
+
+    daily = defaultdict(int)
+    for t in txns:
+        daily[_dt.datetime.fromtimestamp(t["ts"]).date().isoformat()] += 1
+    timeline = sorted(daily.items())
+
+    feed = [{"when": _dt.datetime.fromtimestamp(t["ts"]).strftime("%b %d, %H:%M"),
+             "type": t["type"], "desc": _txn_desc(t)}
+            for t in sorted(txns, key=lambda x: x["ts"], reverse=True)[:40]]
+
+    signals = []
+    for p in partners:
+        if p["count"] >= 2:
+            signals.append({"kind": "Repeat trade partners", "level": "high",
+                            "text": f"{p['a']} and {p['b']} have traded {p['count']} times."})
+    for tr in trade_rows:
+        if tr["value_gap"] and tr["value_gap"] >= 35 and len(tr["sides"]) == 2:
+            hi = max(tr["sides"], key=lambda s: s["value"])
+            lo = min(tr["sides"], key=lambda s: s["value"])
+            when = _dt.datetime.fromtimestamp(tr["ts"]).strftime("%b %d")
+            signals.append({"kind": "Lopsided trade (heuristic)", "level": "mid",
+                            "text": f"{when}: {hi['team']} got ~{hi['value']} vs "
+                                    f"{lo['team']}'s ~{lo['value']} in rough value."})
+    for f in feeding:
+        if f["count"] >= 3:
+            signals.append({"kind": "Drop→add feeding", "level": "mid",
+                            "text": f"{f['adder']} has picked up {f['count']} players "
+                                    f"dropped by {f['dropper']} ({', '.join(f['players'][:3])}…)."})
+    for tm in timing:
+        if tm["score"] >= 0.5 and tm["co"] >= 4:
+            signals.append({"kind": "Synchronized timing", "level": "low",
+                            "text": f"{tm['a']} and {tm['b']} transacted within 30 min "
+                                    f"of each other {tm['co']} times."})
+
+    return {
+        "n_txns": len(txns), "activity": activity, "timing": timing[:10],
+        "feeding": feeding[:10], "trades": trade_rows, "partners": partners,
+        "timeline": timeline, "feed": feed, "signals": signals,
+        "max_day": max((c for _, c in timeline), default=1),
+    }
 
 
 def db_status(conn):

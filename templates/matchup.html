@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Matchup & League{% endblock %}
+
+{% block content %}
+{% if not meta %}
+  <div class="empty" style="padding:3rem 0">
+    <h1>No league data yet</h1>
+    <p>Pull standings, your matchup, and transactions:</p>
+    <pre class="code">python -m fantasybb.league refresh</pre>
+  </div>
+{% else %}
+<div class="myteam-head">
+  <h1>{{ meta['name'] }}</h1>
+  {% if mine %}<span class="muted">You're <b>#{{ mine['rank'] }}</b> of {{ meta['num_teams'] }} · {{ mine['wins'] }}–{{ mine['losses'] }}{% if mine['ties'] %}–{{ mine['ties'] }}{% endif %}</span>{% endif %}
+</div>
+
+{% if mv %}
+<h2 class="section-head">Week {{ mv['week'] }} matchup</h2>
+<div class="vs-head">
+  <span class="vs-me">{{ mv['my_name'] }}</span>
+  <span class="vs-score {{ 'win' if mv['won'] > mv['lost'] else ('loss' if mv['won'] < mv['lost'] else '') }}">{{ mv['won'] }}–{{ mv['lost'] }}{% if mv['tied'] %}–{{ mv['tied'] }}{% endif %}</span>
+  <span class="vs-opp">{{ mv['opp_name'] }}</span>
+</div>
+<div class="table-wrap" style="max-width:560px">
+<table class="stats line">
+  <thead><tr><th class="txt">Cat</th><th class="num">You</th><th class="num">Opp</th><th class="txt"></th></tr></thead>
+  <tbody>
+  {% for r in mv['rows'] %}
+    <tr class="{{ 'grp-pit' if r['is_pitching'] }}">
+      <td class="txt">{{ r['label'] }}</td>
+      <td class="{{ 'wincat' if r['win']==1 }}">{{ r['my_value'] if r['my_value'] is not none else '—' }}</td>
+      <td class="{{ 'wincat' if r['win']==0 }}">{{ r['opp_value'] if r['opp_value'] is not none else '—' }}</td>
+      <td class="txt">{% if r['win']==1 %}<span class="pill-w">W</span>{% elif r['win']==0 %}<span class="pill-l">L</span>{% else %}<span class="pill-t">T</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h2 class="section-head">How you rank across the league</h2>
+<p class="muted" style="margin-top:-0.4rem">Your season total in each category, and where it places among {{ meta['num_teams'] }} teams. Green = strength, red = weakness.</p>
+<div class="rank-grid">
+  {% for c in ranks %}
+    {% set good = c['my_rank'] and c['my_rank'] <= (c['n'] / 3.0) %}
+    {% set bad = c['my_rank'] and c['my_rank'] > (2.0 * c['n'] / 3.0) %}
+    <div class="rank-card">
+      <div class="rank-top">
+        <span class="rank-cat">{{ c['label'] }}{% if c['is_pitching'] %}<span class="pgroup">P</span>{% endif %}</span>
+        <span class="rank-badge {{ 'rk-good' if good else ('rk-bad' if bad else 'rk-mid') }}">#{{ c['my_rank'] or '—' }}<span>/{{ c['n'] }}</span></span>
+      </div>
+      <div class="rank-val">{{ c['my_value'] or '—' }}</div>
+      <div class="rank-bar">
+        {% for cell in c['cells'] %}
+          <span class="seg {{ 'seg-me' if cell['is_mine'] }}" title="{{ cell['name'] }}: {{ cell['value'] }}"></span>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

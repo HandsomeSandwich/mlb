@@ -201,6 +201,34 @@ def streaming():
     )
 
 
+@app.route("/matchup")
+def matchup():
+    conn = get_db()
+    leagues = Q.league_keys(conn)
+    if not leagues:
+        return render_template("matchup.html", leagues=[], meta=None)
+    league_key = request.args.get("league") or leagues[0]
+    meta, mine = Q.league_info(conn, league_key)
+    return render_template(
+        "matchup.html", leagues=leagues, league_key=league_key, meta=meta, mine=mine,
+        mv=Q.matchup_view(conn, league_key), ranks=Q.league_ranks(conn, league_key),
+    )
+
+
+@app.route("/transactions")
+def transactions():
+    conn = get_db()
+    leagues = Q.league_keys(conn)
+    if not leagues:
+        return render_template("transactions.html", leagues=[], a=None, meta=None)
+    league_key = request.args.get("league") or leagues[0]
+    meta, _ = Q.league_info(conn, league_key)
+    return render_template(
+        "transactions.html", leagues=leagues, league_key=league_key, meta=meta,
+        a=Q.transactions_analysis(conn, league_key),
+    )
+
+
 @app.route("/weekly")
 def weekly():
     conn = get_db()

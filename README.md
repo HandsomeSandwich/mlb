@@ -90,6 +90,17 @@ Client**, redirect URI `https://localhost:8000`, **Fantasy Sports → Read**.
   color-graded by OPS/ERA, to spot when they run hot or cold each year.
 * **My Team** — your synced Yahoo roster with season stats, Statcast, IL tags,
   and a 5×5 category snapshot.
+* **League** — your current H2H matchup category-by-category vs your opponent,
+  plus where you rank in every scoring category across the league.
+* **Transactions** — behavioral analysis of league adds/drops/trades: activity
+  timeline, drop→add "feeding", synchronized waiver timing, trade value reads,
+  and surfaced *signals* (patterns for review — not proof of collusion).
+
+League pages need a one-time-per-refresh pull:
+
+```bash
+python -m fantasybb.league refresh        # standings, matchup, transactions
+```
 * **Player page** — bio, per-season line, Statcast strip, and game log.
 * **Season dropdown** (top-right) switches every page between ingested years.
 

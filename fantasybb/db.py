@@ -113,6 +113,91 @@ CREATE TABLE IF NOT EXISTS statcast_batting (
     PRIMARY KEY (player_id, season)
 );
 
+-- Yahoo league header info.
+CREATE TABLE IF NOT EXISTS league_meta (
+    league_key   TEXT PRIMARY KEY,
+    name         TEXT,
+    scoring_type TEXT,
+    num_teams    INTEGER,
+    current_week INTEGER
+);
+
+-- Yahoo league scoring categories.
+CREATE TABLE IF NOT EXISTS league_categories (
+    league_key   TEXT,
+    stat_id      INTEGER,
+    display_name TEXT,
+    name         TEXT,
+    sort_order   INTEGER,   -- 1 = higher is better, 0 = lower is better
+    is_pitching  INTEGER,
+    ord          INTEGER,   -- display order
+    PRIMARY KEY (league_key, stat_id, ord)
+);
+
+-- League standings: one row per team.
+CREATE TABLE IF NOT EXISTS league_teams (
+    league_key TEXT,
+    team_key   TEXT,
+    name       TEXT,
+    rank       INTEGER,
+    wins       INTEGER,
+    losses     INTEGER,
+    ties       INTEGER,
+    pct        REAL,
+    is_mine    INTEGER,
+    PRIMARY KEY (league_key, team_key)
+);
+
+-- Per-team season totals for each scoring category (for league comparison).
+CREATE TABLE IF NOT EXISTS team_category (
+    league_key TEXT,
+    team_key   TEXT,
+    stat_id    INTEGER,
+    value      REAL,
+    value_str  TEXT,
+    PRIMARY KEY (league_key, team_key, stat_id)
+);
+
+-- Weekly matchup: each team's category values + win flags for a week.
+CREATE TABLE IF NOT EXISTS matchup_team (
+    league_key   TEXT,
+    week         INTEGER,
+    team_key     TEXT,
+    opp_team_key TEXT,
+    points       REAL,
+    is_mine      INTEGER,
+    PRIMARY KEY (league_key, week, team_key)
+);
+CREATE TABLE IF NOT EXISTS matchup_category (
+    league_key TEXT,
+    week       INTEGER,
+    team_key   TEXT,
+    stat_id    INTEGER,
+    value      TEXT,
+    win        INTEGER,   -- 1 won, 0 lost, NULL tie
+    PRIMARY KEY (league_key, week, team_key, stat_id)
+);
+
+-- League transactions (adds / drops / trades) and the player moves within them.
+CREATE TABLE IF NOT EXISTS transactions (
+    league_key TEXT,
+    txn_key    TEXT,
+    type       TEXT,
+    status     TEXT,
+    ts         INTEGER,    -- unix timestamp
+    PRIMARY KEY (txn_key)
+);
+CREATE TABLE IF NOT EXISTS transaction_moves (
+    txn_key     TEXT,
+    idx         INTEGER,
+    player_name TEXT,
+    player_id   INTEGER,
+    move_type   TEXT,      -- add / drop
+    source_team TEXT,
+    dest_team   TEXT,
+    PRIMARY KEY (txn_key, idx)
+);
+
 -- Pitcher List daily streamer tiers (scraped). One row per pitcher per day.
 CREATE TABLE IF NOT EXISTS pl_streamers (
     game_date  TEXT,

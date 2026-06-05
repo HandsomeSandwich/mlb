@@ -195,6 +195,73 @@ td.wk-num { font-weight: 800; color: var(--accent); vertical-align: top; }
 .ops-warm, .era-ok { color: #e3b341; }
 .ops-cold, .era-bad { color: #f85149; }
 
+/* ---- matchup + league ranks ---- */
+.vs-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.8rem; font-size: 1.1rem; }
+.vs-me { font-weight: 800; }
+.vs-opp { color: var(--muted); font-weight: 700; }
+.vs-score { font-weight: 800; padding: 0.2rem 0.7rem; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
+.vs-score.win { color: var(--accent-2); border-color: #2ea043; }
+.vs-score.loss { color: #f85149; border-color: #b62324; }
+td.wincat { color: var(--accent-2); font-weight: 800; }
+tr.grp-pit td:first-child { border-left: 2px solid var(--accent); }
+.pill-w, .pill-l, .pill-t { font-size: 0.68rem; font-weight: 800; padding: 0.05rem 0.4rem; border-radius: 4px; }
+.pill-w { background: #16301a; color: #56d364; }
+.pill-l { background: #3a1a1a; color: #f85149; }
+.pill-t { background: var(--panel-2); color: var(--muted); }
+
+.rank-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; }
+.rank-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.8rem; }
+.rank-top { display: flex; justify-content: space-between; align-items: center; }
+.rank-cat { font-size: 0.82rem; font-weight: 700; }
+.rank-cat .pgroup { font-size: 0.6rem; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 0.2rem; margin-left: 0.3rem; vertical-align: middle; }
+.rank-badge { font-weight: 800; font-size: 0.95rem; padding: 0.1rem 0.45rem; border-radius: 6px; }
+.rank-badge span { font-size: 0.65rem; color: var(--muted); font-weight: 600; }
+.rk-good { background: #16301a; color: #56d364; }
+.rk-bad { background: #3a1a1a; color: #f85149; }
+.rk-mid { background: var(--panel-2); color: var(--hl); }
+.rank-val { font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; margin: 0.15rem 0 0.4rem; }
+.rank-bar { display: flex; gap: 2px; height: 16px; }
+.rank-bar .seg { flex: 1; background: var(--panel-2); border-radius: 2px; }
+.rank-bar .seg-me { background: var(--accent); }
+
+/* ---- transactions analysis ---- */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+@media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } }
+.signal-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.signal { display: flex; gap: 0.8rem; align-items: baseline; border-left: 3px solid var(--line);
+  background: var(--panel); border-radius: 0 8px 8px 0; padding: 0.6rem 0.9rem; }
+.signal.sig-high { border-left-color: #f85149; }
+.signal.sig-mid  { border-left-color: var(--accent); }
+.signal.sig-low  { border-left-color: var(--muted); }
+.sig-kind { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 800; color: var(--accent); min-width: 150px; }
+.sig-text { font-size: 0.9rem; }
+
+.timeline { display: flex; align-items: flex-end; gap: 3px; height: 90px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; padding: 0.6rem; overflow-x: auto; }
+.tl-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 22px; height: 100%; }
+.tl-bar { width: 14px; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; }
+.tl-lbl { font-size: 0.58rem; color: var(--muted); margin-top: 0.2rem; white-space: nowrap; }
+
+.trade-list { display: flex; flex-direction: column; gap: 0.7rem; }
+.trade-card { display: flex; align-items: stretch; gap: 0.8rem; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 1rem; flex-wrap: wrap; }
+.trade-side { flex: 1; min-width: 180px; }
+.ts-team { font-weight: 800; margin-bottom: 0.3rem; }
+.ts-val { font-size: 0.78rem; color: var(--hl); font-weight: 700; }
+.ts-player { font-size: 0.86rem; }
+.trade-swap { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); font-size: 1.2rem; }
+.trade-swap .tg { font-size: 0.7rem; color: var(--accent); font-weight: 800; }
+
+.feed { display: flex; flex-direction: column; }
+.feed-row { display: flex; gap: 0.7rem; align-items: baseline; padding: 0.35rem 0; border-bottom: 1px solid #20262f; font-size: 0.86rem; }
+.feed-when { color: var(--muted); font-size: 0.76rem; min-width: 96px; font-variant-numeric: tabular-nums; }
+.feed-type { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; padding: 0.05rem 0.35rem; border-radius: 4px; min-width: 60px; text-align: center; }
+.ft-trade { background: #11283d; color: #58a6ff; }
+.ft-adddrop { background: #1a3a1e; color: #56d364; }
+.ft-add { background: #16301a; color: #3fb950; }
+.ft-drop { background: #3a1a1a; color: #f85149; }
+.feed-desc { flex: 1; }
+
 /* ---- status footer ---- */
 .statusbar {
   max-width: 1200px; margin: 0 auto; padding: 1rem 1.25rem 2rem;
