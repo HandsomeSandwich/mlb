@@ -88,6 +88,28 @@ def fetch_settings(lk, cfg):
     return meta, cats
 
 
+def fetch_managers(lk, cfg) -> dict:
+    """{team_key: 'Nickname' (or 'A / B' for co-managers)}."""
+    parts = _league_parts(api_get(f"league/{lk}/teams;out=managers", cfg))
+    teams = _find(parts, "teams")
+    out = {}
+    for t in _coll(teams or {}):
+        node = t["team"]
+        meta = _team_meta(node)
+        mgrs = meta.get("managers")
+        if not mgrs:
+            for part in node:
+                if isinstance(part, dict) and "managers" in part:
+                    mgrs = part["managers"]
+        names = []
+        for mg in _coll(mgrs or {}):
+            nick = mg.get("manager", {}).get("nickname")
+            if nick and nick != "--hidden--":
+                names.append(nick)
+        out[meta.get("team_key")] = " / ".join(names) if names else None
+    return out
+
+
 def fetch_standings(lk, cfg, my_keys):
     parts = _league_parts(api_get(f"league/{lk}/standings", cfg))
     teams = _find(parts, "standings")[0]["teams"]
@@ -220,8 +242,10 @@ def refresh(league_key=None) -> dict:
 
     meta, cats = fetch_settings(league_key, cfg)
     standings = fetch_standings(league_key, cfg, my_keys)
+    managers = fetch_managers(league_key, cfg)
     week = int(meta.get("current_week") or 0) or None
-    scoreboard = fetch_scoreboard(league_key, cfg, week)
+    weeks_played = list(range(1, week + 1)) if week else []
+    scoreboards = [(w, fetch_scoreboard(league_key, cfg, w)) for w in weeks_played]
     txns = fetch_transactions(league_key, cfg)
     my_team_key = next(iter(my_keys), None)
     schedule = fetch_schedule(my_team_key, cfg, my_keys) if my_team_key else []
@@ -252,10 +276,10 @@ def refresh(league_key=None) -> dict:
         conn.execute("DELETE FROM team_category WHERE league_key=?", (league_key,))
         for t in standings:
             conn.execute(
-                "INSERT INTO league_teams (league_key, team_key, name, rank, wins, "
-                "losses, ties, pct, is_mine) VALUES (?,?,?,?,?,?,?,?,?)",
-                (league_key, t["team_key"], t["name"], t["rank"], t["wins"],
-                 t["losses"], t["ties"], t["pct"], t["is_mine"]))
+                "INSERT INTO league_teams (league_key, team_key, name, manager, rank, "
+                "wins, losses, ties, pct, is_mine) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (league_key, t["team_key"], t["name"], managers.get(t["team_key"]),
+                 t["rank"], t["wins"], t["losses"], t["ties"], t["pct"], t["is_mine"]))
             for sid, val in t["cats"].items():
                 num = _num(val)
                 conn.execute(
@@ -263,10 +287,10 @@ def refresh(league_key=None) -> dict:
                     "value, value_str) VALUES (?,?,?,?,?)",
                     (league_key, t["team_key"], sid, num, str(val) if val is not None else None))
 
-        if week:
-            conn.execute("DELETE FROM matchup_team WHERE league_key=? AND week=?", (league_key, week))
-            conn.execute("DELETE FROM matchup_category WHERE league_key=? AND week=?", (league_key, week))
-            for mu in scoreboard:
+        for wk, sb in scoreboards:
+            conn.execute("DELETE FROM matchup_team WHERE league_key=? AND week=?", (league_key, wk))
+            conn.execute("DELETE FROM matchup_category WHERE league_key=? AND week=?", (league_key, wk))
+            for mu in sb:
                 tks = [t["team_key"] for t in mu["teams"]]
                 for i, t in enumerate(mu["teams"]):
                     opp = tks[1 - i] if len(tks) == 2 else None
@@ -300,7 +324,8 @@ def refresh(league_key=None) -> dict:
                      mv["move_type"], mv["source_team"], mv["dest_team"]))
     conn.close()
     return {"league": meta.get("name"), "teams": len(standings), "week": week,
-            "matchups": len(scoreboard), "transactions": len(txns), "categories": len(cats)}
+            "matchups": sum(len(sb) for _, sb in scoreboards),
+            "transactions": len(txns), "categories": len(cats)}
 
 
 def _num(v):

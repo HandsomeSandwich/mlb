@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS league_teams (
     league_key TEXT,
     team_key   TEXT,
     name       TEXT,
+    manager    TEXT,
     rank       INTEGER,
     wins       INTEGER,
     losses     INTEGER,
@@ -307,6 +308,12 @@ def _migrate_season_pk(conn) -> None:
         conn.execute(f"DROP TABLE {tbl}__old")
 
 
+def _ensure_column(conn, table, col, decl) -> None:
+    cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+    if cols and col not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+
 def init_db(db_path: str = DB_PATH) -> None:
     """Create all tables/indexes if they do not yet exist (migrating if needed)."""
     conn = connect(db_path)
@@ -314,4 +321,5 @@ def init_db(db_path: str = DB_PATH) -> None:
     with conn:
         _migrate_season_pk(conn)
         conn.executescript(SCHEMA)
+        _ensure_column(conn, "league_teams", "manager", "TEXT")
     conn.close()

@@ -212,6 +212,7 @@ def matchup():
     return render_template(
         "matchup.html", leagues=leagues, league_key=league_key, meta=meta, mine=mine,
         mv=Q.matchup_view(conn, league_key), ranks=Q.league_ranks(conn, league_key),
+        h2h=Q.h2h_history(conn, league_key), managers=Q.team_managers(conn, league_key),
     )
 
 

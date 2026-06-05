@@ -19,7 +19,7 @@
 <div class="vs-head">
   <span class="vs-me">{{ mv['my_name'] }}</span>
   <span class="vs-score {{ 'win' if mv['won'] > mv['lost'] else ('loss' if mv['won'] < mv['lost'] else '') }}">{{ mv['won'] }}–{{ mv['lost'] }}{% if mv['tied'] %}–{{ mv['tied'] }}{% endif %}</span>
-  <span class="vs-opp">{{ mv['opp_name'] }}</span>
+  <span class="vs-opp">{{ mv['opp_name'] }}{% if managers.get(mv['opp_name']) %} <span class="muted">({{ managers.get(mv['opp_name']) }})</span>{% endif %}</span>
 </div>
 <div class="table-wrap" style="max-width:560px">
 <table class="stats line">
@@ -31,6 +31,26 @@
       <td class="{{ 'wincat' if r['win']==1 }}">{{ r['my_value'] if r['my_value'] is not none else '—' }}</td>
       <td class="{{ 'wincat' if r['win']==0 }}">{{ r['opp_value'] if r['opp_value'] is not none else '—' }}</td>
       <td class="txt">{% if r['win']==1 %}<span class="pill-w">W</span>{% elif r['win']==0 %}<span class="pill-l">L</span>{% else %}<span class="pill-t">T</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if h2h %}
+<h2 class="section-head">Who beat you, and how</h2>
+<div class="table-wrap" style="max-width:760px">
+<table class="stats">
+  <thead><tr><th class="num">Wk</th><th class="txt">Opponent</th><th class="txt">Result</th><th class="num">Cats</th><th class="txt">Categories you lost</th></tr></thead>
+  <tbody>
+  {% for r in h2h %}
+    <tr>
+      <td>{{ r['week'] }}</td>
+      <td class="txt name">{{ r['opp'] }}{% if r['opp_mgr'] %} <span class="muted">({{ r['opp_mgr'] }})</span>{% endif %}</td>
+      <td class="txt"><span class="pill-{{ 'w' if r['result']=='W' else ('l' if r['result']=='L' else 't') }}">{{ r['result'] }}</span></td>
+      <td>{{ r['won'] }}–{{ r['lost'] }}{% if r['tied'] %}–{{ r['tied'] }}{% endif %}</td>
+      <td class="txt muted" style="font-size:0.78rem">{{ r['lost_cats']|join(', ') }}</td>
     </tr>
   {% endfor %}
   </tbody>

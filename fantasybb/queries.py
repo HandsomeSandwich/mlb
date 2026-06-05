@@ -499,6 +499,33 @@ def transactions_analysis(conn, league_key):
     }
 
 
+def h2h_history(conn, league_key):
+    """My week-by-week H2H results: opponent, score, and which categories flipped."""
+    names = dict(conn.execute(
+        "SELECT team_key, name FROM league_teams WHERE league_key=?", (league_key,)).fetchall())
+    mgrs = team_managers(conn, league_key)
+    cats = {c["stat_id"]: c["display_name"] for c in _scoring_cats(conn, league_key)}
+    mine = conn.execute(
+        "SELECT week, team_key, opp_team_key FROM matchup_team "
+        "WHERE league_key=? AND is_mine=1 ORDER BY week", (league_key,)).fetchall()
+    out = []
+    for m in mine:
+        wk, my_key = m["week"], m["team_key"]
+        wins = conn.execute(
+            "SELECT stat_id, win FROM matchup_category WHERE league_key=? AND week=? "
+            "AND team_key=?", (league_key, wk, my_key)).fetchall()
+        won = [cats.get(r["stat_id"]) for r in wins if r["win"] == 1]
+        lost = [cats.get(r["stat_id"]) for r in wins if r["win"] == 0]
+        opp = names.get(m["opp_team_key"])
+        out.append({
+            "week": wk, "opp": opp, "opp_mgr": mgrs.get(opp),
+            "won": len(won), "lost": len(lost), "tied": sum(1 for r in wins if r["win"] is None),
+            "won_cats": [w for w in won if w], "lost_cats": [l for l in lost if l],
+            "result": "W" if len(won) > len(lost) else ("L" if len(won) < len(lost) else "T"),
+        })
+    return out
+
+
 def opponent_behavior(conn, league_key):
     """How each opponent's transaction activity changes the week they play me."""
     txns = behavior.load_txns(conn, league_key)
@@ -509,8 +536,30 @@ def opponent_behavior(conn, league_key):
     return {"rows": rows, "weeks_with_data": weeks_with_data}
 
 
-SUSPECTED_PAIRS = [("The Straight of Collins", "Bad News Bards")]
+# Suspected coordination, in team terms (managers shown in the UI):
+#   Chad (Forgive Them Judge) ↔ Coop (Okamoto Murakami Sushi Express)
+#   Chad (Forgive Them Judge) ↔ Jason (The Straight of Collins)
+SUSPECTED_PAIRS = [
+    ("Forgive Them Judge", "Okamoto Murakami Sushi Express"),
+    ("Forgive Them Judge", "The Straight of Collins"),
+]
 SUSPECTED_HUB = "Forgive Them Judge"
+
+
+def team_managers(conn, league_key):
+    return {r["name"]: r["manager"] for r in conn.execute(
+        "SELECT name, manager FROM league_teams WHERE league_key=?", (league_key,))}
+
+
+def duplicate_managers(conn, league_key):
+    """Manager nicknames that appear on more than one team (same-person flag)."""
+    seen = defaultdict(list)
+    for r in conn.execute("SELECT name, manager FROM league_teams WHERE league_key=?",
+                          (league_key,)):
+        if r["manager"]:
+            for nick in r["manager"].split(" / "):
+                seen[nick.strip()].append(r["name"])
+    return {nick: teams for nick, teams in seen.items() if len(teams) > 1}
 
 
 def collusion_view(conn, league_key, focus=None):
@@ -526,7 +575,9 @@ def collusion_view(conn, league_key, focus=None):
     focus_cards = [{"a": a, "b": b, "pair": find(a, b)} for a, b in focus]
     hub_pairs = [p for p in pairs if SUSPECTED_HUB in (p["a"], p["b"])]
     return {"pairs": pairs, "hubs": hubs, "focus": focus_cards,
-            "hub_name": SUSPECTED_HUB, "hub_pairs": hub_pairs}
+            "hub_name": SUSPECTED_HUB, "hub_pairs": hub_pairs,
+            "managers": team_managers(conn, league_key),
+            "dupes": duplicate_managers(conn, league_key)}
 
 
 def db_status(conn):

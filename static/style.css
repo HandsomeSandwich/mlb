@@ -272,6 +272,12 @@ tr.grp-pit td:first-child { border-left: 2px solid var(--accent); }
 .ev b { display: block; font-size: 1.3rem; color: var(--accent); }
 .ev span { font-size: 0.66rem; color: var(--muted); }
 .ev-players { font-size: 0.8rem; color: var(--text); margin-top: 0.5rem; }
+.ev small { display: block; font-size: 0.62rem; margin-top: 0.2rem; }
+.who-team { display: block; font-size: 0.62rem; color: var(--muted); font-weight: 400; }
+.oi { font-weight: 800; }
+.oi-hot { color: #f85149; }
+.oi-warm { color: var(--accent); }
+.oi-cool { color: var(--muted); }
 .hub-bars { display: flex; flex-direction: column; gap: 0.4rem; max-width: 560px; }
 .hub-row { display: flex; align-items: center; gap: 0.7rem; }
 .hub-name { min-width: 200px; font-size: 0.86rem; font-weight: 600; }

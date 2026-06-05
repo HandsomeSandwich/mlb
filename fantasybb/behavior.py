@@ -228,6 +228,21 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
         for s in tr["sides"]:
             tp_val[(a, b)][s["team"]] += s["value"]
 
+    # Expected feeding from volume alone (contingency-table model): if A gives
+    # G_A feeds total and B receives R_B total out of F league-wide, then by
+    # chance A->B ~= G_A * R_B / F. over_index = actual / expected cuts the
+    # "busiest managers overlap most" confound -- only >1 is beyond chance.
+    give, recv, total_feed = defaultdict(int), defaultdict(int), 0
+    for (d, a), c in feed.items():
+        give[d] += c
+        recv[a] += c
+        total_feed += c
+
+    def over_index(d, a):
+        c = feed.get((d, a), 0)
+        exp = (give[d] * recv[a] / total_feed) if total_feed else 0
+        return (round(c / exp, 2) if exp > 0 else None), round(exp, 1)
+
     timing = {}
     for p in timing_similarity(txns, window=900):
         timing[tuple(sorted((p["a"], p["b"])))] = p["co"]
@@ -250,9 +265,17 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
             co = timing.get((A, B), 0)
             if fab + fba + tc + co == 0:
                 continue
-            score = (fab + fba) + tc * 3 + co * 0.5 + abs(vA - vB) * 0.04
+            oi_ab, exp_ab = over_index(A, B)
+            oi_ba, exp_ba = over_index(B, A)
+            max_oi = max([x for x in (oi_ab, oi_ba) if x is not None], default=None)
+            # rank on coordination *beyond chance*: trades + timing + how far the
+            # feeding exceeds its volume-expected baseline.
+            excess = max(0, (fab - exp_ab)) + max(0, (fba - exp_ba))
+            score = tc * 3 + co * 0.5 + excess * 1.5 + abs(vA - vB) * 0.04
             pairs.append({
                 "a": A, "b": B, "feed_ab": fab, "feed_ba": fba,
+                "oi_ab": oi_ab, "oi_ba": oi_ba, "max_oi": max_oi,
+                "exp_ab": exp_ab, "exp_ba": exp_ba,
                 "feed_players_ab": feed_players.get((A, B), [])[:5],
                 "feed_players_ba": feed_players.get((B, A), [])[:5],
                 "trades": tc, "val_a": vA, "val_b": vB,

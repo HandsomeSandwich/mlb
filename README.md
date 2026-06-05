@@ -91,15 +91,17 @@ Client**, redirect URI `https://localhost:8000`, **Fantasy Sports → Read**.
 * **My Team** — your synced Yahoo roster with season stats, Statcast, IL tags,
   and a 5×5 category snapshot.
 * **League** — your current H2H matchup category-by-category vs your opponent,
-  plus where you rank in every scoring category across the league.
+  where you rank in every scoring category, and a **"who beat you, and how"**
+  season history (per week: opponent + manager, result, categories lost).
 * **Transactions** — behavioral analysis of league adds/drops/trades: activity
   timeline, drop→add "feeding", synchronized waiver timing, trade value reads,
   surfaced *signals*, and **how each opponent's activity ramps the week they
   play you**.
-* **Collusion lens** — directional A↔B coordination (feeding asymmetry, trade
-  value flow, tight timing), hub ranking, and focused evidence cards for
-  suspected pairs (`?a=Team+One&b=Team+Two`). Framed as patterns for review,
-  with the activity confound called out — *not* proof of anything.
+* **Collusion lens** — directional A↔B coordination labeled by **manager name**:
+  feeding shown as **× expected** (actual ÷ volume-predicted, so it isn't just
+  "busiest managers"), trade value flow, tight timing, hub ranking, duplicate-
+  manager flag, and focused evidence cards for suspected pairs
+  (`?a=Team+One&b=Team+Two`). Patterns for review — *not* proof.
 
 League pages need a one-time-per-refresh pull:
 
