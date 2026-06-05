@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Trade Analyzer{% endblock %}
+
+{% macro side_panel(label, side, badge) %}
+  <div class="trade-side">
+    <div class="trade-side-head">
+      <h2>Side {{ label }} <span class="muted">receives</span></h2>
+      <span class="side-total {{ 'pos' if side.total >= 0 else 'neg' }}">
+        {{ '%+.1f'|format(side.total) }}
+      </span>
+    </div>
+    {% if side.players %}
+      <table class="stats trade-players">
+        <thead><tr>
+          <th class="txt">Player</th><th class="txt">Pos</th>
+          <th>Value</th><th class="txt">Category z-scores</th>
+        </tr></thead>
+        <tbody>
+        {% for pl in side.players %}
+          <tr>
+            <td class="txt name">
+              <a href="{{ url_for('player', player_id=pl.row['player_id']) }}">{{ pl.row['full_name'] }}</a>
+              <span class="muted">{{ pl.row['team'] or '' }}</span>
+              {% if pl.alts %}
+                <div class="alt-note">matched “{{ pl.query }}” · also:
+                  {% for a in pl.alts %}<a href="{{ url_for('player', player_id=a['player_id']) }}">{{ a['full_name'] }}</a>{{ ', ' if not loop.last }}{% endfor %}
+                </div>
+              {% endif %}
+            </td>
+            <td class="txt">{{ pl.row['position'] or '' }}</td>
+            <td class="hl {{ 'pos' if pl.value >= 0 else 'neg' }}">{{ '%+.1f'|format(pl.value) }}</td>
+            <td class="txt comps">
+              {% if pl.hit %}{% for c, z in pl.hit.comps.items() %}<span class="z {{ 'up' if z >= 0 else 'down' }}">{{ c }} {{ '%+.1f'|format(z) }}</span>{% endfor %}{% endif %}
+              {% if pl.pit %}{% for c, z in pl.pit.comps.items() %}<span class="z arm {{ 'up' if z >= 0 else 'down' }}">{{ c }} {{ '%+.1f'|format(z) }}</span>{% endfor %}{% endif %}
+              {% if not pl.hit and not pl.pit %}<span class="muted">no 2025 stats</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted empty">No players entered for this side.</p>
+    {% endif %}
+    {% if side.unmatched %}
+      <p class="cold-txt unmatched">Couldn’t find: {{ side.unmatched|join(', ') }}</p>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% block content %}
+<h1 class="page-title">Trade Analyzer</h1>
+<p class="muted" style="margin-top:-0.4rem; max-width:70ch">
+  Enter the players each side <b>receives</b>. Each player is valued by summing how
+  many standard deviations above/below the league pool they are in the standard
+  5×5 roto categories — <b>R, HR, RBI, SB, AVG</b> for hitters and
+  <b>W, SV, K, ERA, WHIP</b> for pitchers — using realized <b>2025</b> production.
+  A bigger number = more fantasy value.
+</p>
+
+<form class="filters trade-form" method="get">
+  <label style="flex:1; min-width:240px">Side A receives
+    <textarea name="a" rows="3" placeholder="e.g. Juan Soto">{{ a_raw }}</textarea>
+  </label>
+  <span class="swap">⇄</span>
+  <label style="flex:1; min-width:240px">Side B receives
+    <textarea name="b" rows="3" placeholder="e.g. George Soriano, Casey Schmitt">{{ b_raw }}</textarea>
+  </label>
+  <button type="submit">Analyze</button>
+</form>
+<p class="muted" style="font-size:0.78rem; margin-top:-0.4rem">
+  Separate names with commas, “&”, “and”, or new lines. The closest, most-played
+  match is auto-selected (alternatives are shown if the pick is ambiguous).
+</p>
+
+{% if result %}
+  <div class="verdict-banner v-{{ result.verdict|replace(' ', '-')|lower }}">
+    <div class="verdict-main">
+      <span class="verdict-tag">{{ result.verdict }}</span>
+      {% if result.winner %}
+        <span class="verdict-sub">favors <b>Side {{ result.winner }}</b> by
+          {{ '%.1f'|format(result.delta|abs) }} value</span>
+      {% else %}
+        <span class="verdict-sub">within {{ '%.1f'|format(result.delta|abs) }} value — call it square</span>
+      {% endif %}
+    </div>
+    {% if result.share_a is not none %}
+      <div class="balance">
+        <div class="bar">
+          <span class="seg a" style="width: {{ result.share_a }}%">A {{ '%.0f'|format(result.share_a) }}%</span>
+          <span class="seg b" style="width: {{ 100 - result.share_a }}%">B {{ '%.0f'|format(100 - result.share_a) }}%</span>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="trade-grid">
+    {{ side_panel('A', result.a) }}
+    {{ side_panel('B', result.b) }}
+  </div>
+
+  <p class="muted pool-note">
+    League pool: {{ result.pool.hitters }} hitters (≥{{ result.pool.min_pa }} PA) and
+    {{ result.pool.pitchers }} pitchers (≥{{ result.pool.min_ip }} IP) define
+    "average". Values are descriptive of 2025 results, not projections — a rookie
+    or post-injury rental will score low even if you expect a breakout.
+  </p>
+{% endif %}
+{% endblock %}

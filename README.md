@@ -56,6 +56,14 @@ re-run, or backfill by date range, without redoing work. The DB lands at
 * **Hitters / Pitchers** — sortable, filterable leaderboards (click any column
   header to sort; filter by team, position, min PA/IP; search by name).
 * **Player page** — bio, season line, Statcast strip, and full game log.
+* **Trade** — paste the players each side receives (e.g. `Soto` vs
+  `Soriano, Schmitt`) and get a fairness verdict. Each player is valued with a
+  standard 5×5 roto **z-score** model: how many standard deviations above/below
+  the league pool they are in R/HR/RBI/SB/AVG (hitters) and W/SV/K/ERA/WHIP
+  (pitchers), with rate stats weighted by playing time. Side totals, a
+  per-category breakdown, and an even/edge/lopsided call settle the argument
+  with numbers instead of vibes. Two-way players (Ohtani) get both a hitter and
+  a pitcher value. Run `python test_trade_analyzer.py` for a no-network check.
 
 ## Layout
 
