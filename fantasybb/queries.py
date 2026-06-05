@@ -21,6 +21,14 @@ PITCHER_SORTS = {
     "so": "ps.so", "bb": "ps.bb", "h": "ps.h", "hr": "ps.hr", "era": "ps.era",
     "whip": "ps.whip", "k9": "ps.k9", "bb9": "ps.bb9", "kbb": "ps.kbb",
 }
+# Recent-form (last-N-days) leaderboard. Computed aggregates are sorted by their
+# SELECT aliases, so the whitelist values are the alias names.
+RECENT_SORTS = {
+    "name": "full_name", "team": "team", "g": "g", "pa": "pa", "ab": "ab",
+    "h": "h", "r": "r", "hr": "hr", "rbi": "rbi", "sb": "sb", "bb": "bb",
+    "so": "so", "avg": "avg", "obp": "obp", "slg": "slg", "ops": "ops",
+    "season_ops": "season_ops", "delta": "delta",
+}
 
 
 def ip_str(outs: int | None) -> str:
@@ -171,3 +179,59 @@ def db_status(conn):
         "pitchers": g("SELECT COUNT(*) FROM pitching_season"),
         "statcast": g("SELECT COUNT(*) FROM statcast_batting"),
     }
+
+
+def latest_game_date(conn):
+    return conn.execute("SELECT MAX(game_date) FROM batting_games").fetchone()[0]
+
+
+def recent_window(conn, days: int):
+    """(start_date, end_date) for the last `days` of data we hold.
+
+    The 2025 season is complete, so 'recent' is relative to the most recent
+    game in the DB rather than today's date.
+    """
+    end = latest_game_date(conn)
+    start = conn.execute("SELECT date(?, ?)", (end, f"-{int(days)} days")).fetchone()[0]
+    return start, end
+
+
+def recent_hitters(conn, *, days=15, min_pa=20, sort="ops", direction="desc", limit=300):
+    """Hot/cold hitters over the last `days` of the season.
+
+    Rate stats (AVG/OBP/SLG/OPS) are computed over the window; `delta` is the
+    window OPS minus the player's full-season OPS — positive = heating up.
+    """
+    start, _ = recent_window(conn, days)
+    order = RECENT_SORTS.get(sort, "ops")
+    dir_sql = "ASC" if direction == "asc" else "DESC"
+    sql = f"""
+        SELECT p.player_id, p.full_name, p.position, t.abbreviation AS team,
+               COUNT(DISTINCT bg.game_pk) AS g,
+               SUM(bg.pa) AS pa, SUM(bg.ab) AS ab, SUM(bg.h) AS h,
+               SUM(bg.r) AS r, SUM(bg.hr) AS hr, SUM(bg.rbi) AS rbi,
+               SUM(bg.sb) AS sb, SUM(bg.bb) AS bb, SUM(bg.so) AS so,
+               ROUND(SUM(bg.h) * 1.0 / NULLIF(SUM(bg.ab), 0), 3) AS avg,
+               ROUND((SUM(bg.h) + SUM(bg.bb) + SUM(bg.hbp)) * 1.0
+                     / NULLIF(SUM(bg.ab) + SUM(bg.bb) + SUM(bg.hbp) + SUM(bg.sac_flies), 0), 3) AS obp,
+               ROUND(SUM(bg.tb) * 1.0 / NULLIF(SUM(bg.ab), 0), 3) AS slg,
+               ROUND(
+                 (SUM(bg.h) + SUM(bg.bb) + SUM(bg.hbp)) * 1.0
+                   / NULLIF(SUM(bg.ab) + SUM(bg.bb) + SUM(bg.hbp) + SUM(bg.sac_flies), 0)
+                 + SUM(bg.tb) * 1.0 / NULLIF(SUM(bg.ab), 0), 3) AS ops,
+               bs.ops AS season_ops,
+               ROUND(
+                 (SUM(bg.h) + SUM(bg.bb) + SUM(bg.hbp)) * 1.0
+                   / NULLIF(SUM(bg.ab) + SUM(bg.bb) + SUM(bg.hbp) + SUM(bg.sac_flies), 0)
+                 + SUM(bg.tb) * 1.0 / NULLIF(SUM(bg.ab), 0)
+                 - bs.ops, 3) AS delta
+        FROM batting_games bg
+        JOIN players p USING(player_id)
+        LEFT JOIN teams t ON t.team_id = p.team_id
+        LEFT JOIN batting_season bs ON bs.player_id = bg.player_id
+        WHERE bg.game_date >= ?
+        GROUP BY bg.player_id
+        HAVING SUM(bg.pa) >= ?
+        ORDER BY {order} {dir_sql} NULLS LAST, p.full_name ASC
+        LIMIT ?"""
+    return conn.execute(sql, (start, min_pa, limit)).fetchall()

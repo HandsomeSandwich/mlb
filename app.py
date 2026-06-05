@@ -95,6 +95,23 @@ def pitchers():
     )
 
 
+@app.route("/trends")
+def trends():
+    conn = get_db()
+    sort = request.args.get("sort", "ops")
+    direction = request.args.get("dir", "desc")
+    days = request.args.get("days", type=int) or 15
+    min_pa = request.args.get("min_pa", type=int)
+    if min_pa is None:
+        min_pa = 20
+    rows = Q.recent_hitters(conn, days=days, min_pa=min_pa, sort=sort, direction=direction)
+    start, end = Q.recent_window(conn, days)
+    return render_template(
+        "trends.html", rows=rows, sort=sort, dir=direction, days=days,
+        min_pa=min_pa, start=start, end=end,
+    )
+
+
 @app.route("/player/<int:player_id>")
 def player(player_id):
     conn = get_db()
