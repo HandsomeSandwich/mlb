@@ -94,6 +94,31 @@ def index():
     return render_template("index.html", **ctx)
 
 
+@app.errorhandler(404)
+def page_not_found(_e):
+    return render_template("not_found.html"), 404
+
+
+@app.route("/search")
+def search():
+    conn = get_db()
+    yr = selected_season(conn)
+    q = request.args.get("q") or None
+    rows = Q.search_players(conn, q, yr) if q else []
+    return render_template("search.html", q=q, rows=rows)
+
+
+def _limit(default=50):
+    """Row-count selector; 'all' (or a big number) lifts the cap."""
+    raw = request.args.get("limit")
+    if raw in ("all", "0"):
+        return 5000
+    try:
+        return min(int(raw), 5000)
+    except (TypeError, ValueError):
+        return default
+
+
 @app.route("/hitters")
 def hitters():
     conn = get_db()
@@ -104,11 +129,13 @@ def hitters():
     pos = request.args.get("pos") or None
     q = request.args.get("q") or None
     min_pa = request.args.get("min_pa", type=int) or 0
+    limit = _limit()
     rows = Q.hitters(conn, sort=sort, direction=direction, team=team, pos=pos,
-                     min_pa=min_pa, q=q, season=yr)
+                     min_pa=min_pa, q=q, season=yr, limit=limit)
     return render_template(
         "hitters.html", rows=rows, sort=sort, dir=direction, team=team, pos=pos,
-        q=q, min_pa=min_pa, teams=Q.teams_list(conn), positions=Q.positions_list(conn),
+        q=q, min_pa=min_pa, limit=limit, teams=Q.teams_list(conn),
+        positions=Q.positions_list(conn),
     )
 
 
@@ -121,11 +148,12 @@ def pitchers():
     team = request.args.get("team") or None
     q = request.args.get("q") or None
     min_ip = request.args.get("min_ip", type=int) or 0
+    limit = _limit()
     rows = Q.pitchers(conn, sort=sort, direction=direction, team=team,
-                      min_outs=min_ip * 3, q=q, season=yr)
+                      min_outs=min_ip * 3, q=q, season=yr, limit=limit)
     return render_template(
         "pitchers.html", rows=rows, sort=sort, dir=direction, team=team, q=q,
-        min_ip=min_ip, teams=Q.teams_list(conn),
+        min_ip=min_ip, limit=limit, teams=Q.teams_list(conn),
     )
 
 

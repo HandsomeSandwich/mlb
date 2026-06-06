@@ -10,16 +10,13 @@
 <header class="topbar">
   <a class="brand" href="{{ url_for('index') }}">⚾ Diamond<span>DB</span></a>
   <nav>
-    <a href="{{ url_for('index') }}">Home</a>
-    <a href="{{ url_for('hitters') }}">Hitters</a>
-    <a href="{{ url_for('pitchers') }}">Pitchers</a>
-    <a href="{{ url_for('trends') }}">Hot/Cold</a>
-    <a href="{{ url_for('streaming') }}">Streaming</a>
-    <a href="{{ url_for('weekly') }}">Weekly</a>
-    <a href="{{ url_for('myteam') }}">My Team</a>
-    <a href="{{ url_for('matchup') }}">League</a>
-    <a href="{{ url_for('transactions') }}">Transactions</a>
-    <a href="{{ url_for('collusion') }}">Collusion</a>
+    {% set navitems = [('index','Home'), ('hitters','Hitters'), ('pitchers','Pitchers'),
+                       ('trends','Hot/Cold'), ('streaming','Streaming'), ('weekly','Weekly'),
+                       ('myteam','My Team'), ('matchup','League'),
+                       ('transactions','Transactions'), ('collusion','Collusion')] %}
+    {% for endpoint, label in navitems %}
+      <a class="{{ 'active' if request.endpoint == endpoint }}" href="{{ url_for(endpoint) }}">{{ label }}</a>
+    {% endfor %}
   </nav>
   {% if seasons and seasons|length > 1 %}
   <select class="season-select" title="Season"
@@ -29,9 +26,9 @@
     {% endfor %}
   </select>
   {% endif %}
-  <form class="search" action="{{ url_for('hitters') }}" method="get">
+  <form class="search" action="{{ url_for('search') }}" method="get">
     {% if season %}<input type="hidden" name="season" value="{{ season }}">{% endif %}
-    <input type="text" name="q" placeholder="Search player…" value="{{ request.args.get('q','') }}">
+    <input type="text" name="q" placeholder="Search any player…" value="{{ request.args.get('q','') }}">
   </form>
 </header>
 

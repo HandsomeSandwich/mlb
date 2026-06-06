@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Search{% if q %} — {{ q }}{% endif %}{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Search{% if q %} <span class="muted">— “{{ q }}”</span>{% endif %}</h1>
+
+<form class="filters" method="get" style="margin-bottom:1rem">
+  {% if season %}<input type="hidden" name="season" value="{{ season }}">{% endif %}
+  <label>Player name
+    <input type="text" name="q" value="{{ q or '' }}" placeholder="hitter or pitcher" autofocus style="width:14rem">
+  </label>
+  <button type="submit">Search</button>
+  {% if rows is not none %}<span class="count">{{ rows|length }} found</span>{% endif %}
+</form>
+
+{% if q and not rows %}
+  <p class="empty">No players match “{{ q }}”.</p>
+{% elif rows %}
+<div class="table-wrap" style="max-width:640px">
+<table class="stats">
+  <thead><tr><th class="txt">Player</th><th class="txt">Pos</th><th class="txt">Team</th><th class="txt">Type</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td class="txt name"><a href="{{ url_for('player', player_id=r['player_id']) }}{% if season %}?season={{ season }}{% endif %}">{{ r['full_name'] }}</a></td>
+      <td class="txt">{{ r['position'] or '—' }}</td>
+      <td class="txt">{{ r['team'] or '—' }}</td>
+      <td class="txt muted">
+        {%- if r['has_pit'] and not r['has_bat'] %}Pitcher
+        {%- elif r['has_bat'] and r['has_pit'] %}Two-way
+        {%- elif r['has_bat'] %}Hitter
+        {%- else %}—{% endif -%}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% elif not q %}
+  <p class="muted">Type a name above — works for both hitters and pitchers.</p>
+{% endif %}
+{% endblock %}

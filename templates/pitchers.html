@@ -2,7 +2,7 @@
 {% from "_sort.html" import th %}
 {% block title %}Pitchers — 2025{% endblock %}
 
-{% set base_args = {'team': team, 'q': q, 'min_ip': min_ip, 'season': season} %}
+{% set base_args = {'team': team, 'q': q, 'min_ip': min_ip, 'season': season, 'limit': limit} %}
 
 {% block content %}
 <h1 class="page-title">Pitchers <span class="muted">— {{ season }}</span></h1>
@@ -23,8 +23,14 @@
     <input type="number" name="min_ip" value="{{ min_ip or '' }}" min="0" step="10" style="width:5rem">
   </label>
   <label>Name <input type="text" name="q" value="{{ q or '' }}" placeholder="search"></label>
+  <label>Show
+    <select name="limit" onchange="this.form.submit()">
+      {% for n in [50, 150, 500] %}<option value="{{ n }}" {{ 'selected' if limit == n }}>{{ n }}</option>{% endfor %}
+      <option value="all" {{ 'selected' if limit >= 5000 }}>All</option>
+    </select>
+  </label>
   <button type="submit">Apply</button>
-  <span class="count">{{ rows|length }} pitchers</span>
+  <span class="count">{{ rows|length }} shown{% if rows|length == limit and limit < 5000 %} · top {{ limit }}, raise “Show” for more{% endif %}</span>
 </form>
 
 <div class="table-wrap">

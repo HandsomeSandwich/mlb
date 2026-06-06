@@ -108,6 +108,24 @@ def pitchers(conn, *, sort="so", direction="desc", team=None,
     return conn.execute(sql, params).fetchall()
 
 
+def search_players(conn, q: str, season=None, limit=60):
+    """Find any player (hitter or pitcher) by name, for the global search box."""
+    return conn.execute(
+        """SELECT p.player_id, p.full_name, p.position, p.bat_side, p.pitch_hand,
+                  t.abbreviation AS team,
+                  (b.player_id IS NOT NULL) AS has_bat,
+                  (ps.player_id IS NOT NULL) AS has_pit
+           FROM players p
+           LEFT JOIN teams t ON t.team_id = p.team_id
+           LEFT JOIN batting_season b  ON b.player_id = p.player_id AND b.season = ?
+           LEFT JOIN pitching_season ps ON ps.player_id = p.player_id AND ps.season = ?
+           WHERE p.full_name LIKE ?
+           ORDER BY (b.pa IS NULL AND ps.outs IS NULL), p.full_name
+           LIMIT ?""",
+        (season, season, f"%{q}%", limit),
+    ).fetchall()
+
+
 def seasons(conn) -> list[int]:
     """Seasons present in the DB, newest first."""
     rows = conn.execute(
