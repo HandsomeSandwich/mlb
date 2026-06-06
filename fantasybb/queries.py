@@ -584,8 +584,42 @@ def _form_arrow(recent, season_rate, lower_better):
     return "▲" if better else ("▼" if worse else "→")
 
 
+def _since_trade(conn, pid, kind, since_date):
+    """A player's accumulated game-log production from `since_date` onward."""
+    if kind == "pit":
+        r = conn.execute(
+            "SELECT COUNT(*) g, SUM(outs) outs, SUM(er) er, SUM(h) h, SUM(bb) bb, "
+            "SUM(w) w, SUM(sv) sv, SUM(so) so FROM pitching_games "
+            "WHERE player_id=? AND game_date>=?", (pid, since_date)).fetchone()
+        if not r or not r["g"]:
+            return None
+        ip = (r["outs"] or 0) / 3
+        era = round(9 * (r["er"] or 0) / ip, 2) if ip else None
+        whip = round(((r["h"] or 0) + (r["bb"] or 0)) / ip, 2) if ip else None
+        val = round((r["w"] or 0) * 4 + (r["sv"] or 0) * 3 + (r["so"] or 0) * 0.4
+                    - ((era or 4) - 4) * 8 - ((whip or 1.25) - 1.25) * 30, 1)
+        return {"value": val, "g": r["g"],
+                "line": f"{r['w']}W {r['sv']}SV {r['so']}K · {era if era is not None else '—'} ERA · {ip:.0f} IP"}
+    r = conn.execute(
+        "SELECT COUNT(*) g, SUM(ab) ab, SUM(h) h, SUM(r) r, SUM(hr) hr, SUM(rbi) rbi, "
+        "SUM(sb) sb, SUM(bb) bb, SUM(hbp) hbp, SUM(sac_flies) sf, SUM(tb) tb "
+        "FROM batting_games WHERE player_id=? AND game_date>=?", (pid, since_date)).fetchone()
+    if not r or not r["g"]:
+        return None
+    ab = r["ab"] or 0
+    avg = round((r["h"] or 0) / ab, 3) if ab else None
+    den = ab + (r["bb"] or 0) + (r["hbp"] or 0) + (r["sf"] or 0)
+    ops = (round(((r["h"] or 0) + (r["bb"] or 0) + (r["hbp"] or 0)) / den + (r["tb"] or 0) / ab, 3)
+           if (ab and den) else None)
+    val = round((r["hr"] or 0) * 3 + (r["r"] or 0) + (r["rbi"] or 0) + (r["sb"] or 0) * 2
+                + ((ops or 0.7) - 0.7) * 120, 1)
+    return {"value": val, "g": r["g"],
+            "line": f"{r['hr']}HR {r['r']}R {r['rbi']}RBI {r['sb']}SB · {avg if avg is not None else '—'} · {r['g']}G"}
+
+
 def trade_factors(conn, league_key, season):
-    """Each trade evaluated on multiple factors, side by side."""
+    """Each trade evaluated on multiple factors, side by side, plus the outcome
+    each side has actually banked since the trade date."""
     import datetime as _d
     txns = behavior.load_txns(conn, league_key)
     lookup = match.build_lookup(conn)
@@ -594,6 +628,7 @@ def trade_factors(conn, league_key, season):
     for t in txns:
         if t["type"] != "trade":
             continue
+        since_date = _d.datetime.fromtimestamp(t["ts"]).date().isoformat()
         sides = {}
         for mv in t["moves"]:
             dest = mv["dest_team"]
@@ -601,24 +636,29 @@ def trade_factors(conn, league_key, season):
                 continue
             pid = match.match(lookup, mv["player_name"] or "")
             f = player_factors(conn, pid, season) if pid else {"name": mv["player_name"], "kind": None, "thin": True}
+            f["since"] = _since_trade(conn, pid, f.get("kind"), since_date) if pid and f.get("kind") else None
             sides.setdefault(dest, []).append(f)
         side_list = []
         for team, players in sides.items():
             side_list.append({
                 "team": team, "mgr": mgr.get(team) or team, "players": players,
                 "now": round(sum(p.get("value_now") or 0 for p in players), 1),
+                "since": round(sum((p["since"]["value"] if p.get("since") else 0) for p in players), 1),
                 "luck_tilt": sum(p.get("luck_dir") or 0 for p in players),
             })
         verdict = None
         if len(side_list) == 2:
             a, b = side_list
-            now_w = a if a["now"] >= b["now"] else b
             fwd_w = a if a["luck_tilt"] >= b["luck_tilt"] else b
+            since_w = a if a["since"] >= b["since"] else b
             verdict = {
-                "now": now_w["mgr"], "now_gap": round(abs(a["now"] - b["now"]), 1),
+                "now": (a if a["now"] >= b["now"] else b)["mgr"],
+                "now_gap": round(abs(a["now"] - b["now"]), 1),
                 "fwd": fwd_w["mgr"] if a["luck_tilt"] != b["luck_tilt"] else None,
+                "since": since_w["mgr"], "since_gap": round(abs(a["since"] - b["since"]), 1),
             }
         out.append({"ts": t["ts"],
+                    "since_date": since_date,
                     "when": _d.datetime.fromtimestamp(t["ts"]).strftime("%b %d, %Y"),
                     "sides": side_list, "verdict": verdict})
     out.sort(key=lambda x: x["ts"], reverse=True)

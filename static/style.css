@@ -330,6 +330,8 @@ tr.grp-pit td:first-child { border-left: 2px solid var(--accent); }
 .tp-prod { font-size: 0.82rem; margin-top: 0.15rem; }
 .tp-skill { font-size: 0.78rem; color: var(--muted); }
 .tp-luck { font-size: 0.76rem; color: var(--accent); margin-top: 0.1rem; }
+.tp-since { font-size: 0.76rem; color: var(--accent-2); margin-top: 0.1rem; }
+.te-won b { color: var(--accent-2); }
 .grade { font-weight: 800; font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 4px; }
 .g-a { background: #16301a; color: #56d364; } .g-b { background: #16302a; color: #3fb9a0; }
 .g-c { background: #3a2e12; color: #e3b341; } .g-d { background: #3a2412; color: #f0883e; }

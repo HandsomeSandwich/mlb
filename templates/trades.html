@@ -32,7 +32,7 @@
     <div class="te-side">
       <div class="te-head">
         <span class="te-mgr">{{ s['mgr'] }} gets</span>
-        <span class="te-now" title="production value now">now {{ s['now'] }}</span>
+        <span class="te-now" title="full-season value / production banked since the trade">now {{ s['now'] }} · since <b>{{ s['since'] }}</b></span>
       </div>
       {% for p in s['players'] %}
         {% if p.get('thin') %}
@@ -45,6 +45,7 @@
           </div>
           <div class="tp-prod">{{ p['prod'] }}</div>
           <div class="tp-skill">{{ p['skill'] }}</div>
+          {% if p['since'] %}<div class="tp-since">since trade: {{ p['since']['line'] }}</div>{% endif %}
           {% if p['luck_txt'] and p['luck_dir'] != 0 %}<div class="tp-luck">{{ p['luck_txt'] }}</div>{% endif %}
         </div>
         {% endif %}
@@ -55,8 +56,9 @@
   </div>
   {% if t['verdict'] %}
   <div class="te-verdict">
-    <span><b>By results so far:</b> {{ t['verdict']['now'] }} (+{{ t['verdict']['now_gap'] }} value)</span>
-    <span><b>By underlying / regression:</b> {{ t['verdict']['fwd'] or 'roughly even' }}{% if t['verdict']['fwd'] and t['verdict']['fwd'] != t['verdict']['now'] %} <span class="flip">— flips the other way</span>{% endif %}</span>
+    <span class="te-won"><b>Won so far (since {{ t['since_date'][5:] }}):</b> {{ t['verdict']['since'] }} (+{{ t['verdict']['since_gap'] }} banked)</span>
+    <span><b>Full-season value:</b> {{ t['verdict']['now'] }} (+{{ t['verdict']['now_gap'] }})</span>
+    <span><b>Underlying / regression:</b> {{ t['verdict']['fwd'] or 'roughly even' }}{% if t['verdict']['fwd'] and t['verdict']['fwd'] != t['verdict']['now'] %} <span class="flip">— flips the other way</span>{% endif %}</span>
   </div>
   {% endif %}
 </div>
