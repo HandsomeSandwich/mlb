@@ -19,6 +19,30 @@
   <b>Grade</b> = underlying quality (A best). <b>▲/▼</b> = recent form.
 </p>
 
+{% if board %}
+<h2 class="section-head">Manager trade scoreboard <span class="muted">(net production since each deal)</span></h2>
+<div class="table-wrap" style="max-width:560px">
+<table class="stats">
+  <thead><tr><th class="txt">Manager</th><th class="num">Trades</th><th class="num">W–L</th><th class="num">Net since</th><th class="num">Net value</th></tr></thead>
+  <tbody>
+  {% for r in board %}
+    <tr>
+      <td class="txt name">{{ r['mgr'] }}</td>
+      <td>{{ r['trades'] }}</td>
+      <td>{{ r['wins'] }}–{{ r['losses'] }}</td>
+      <td class="{{ 'hot-txt' if r['net_since'] > 0 else ('cold-txt' if r['net_since'] < 0 else '') }}">{{ '%+.1f'|format(r['net_since']) }}</td>
+      <td class="muted">{{ '%+.1f'|format(r['net_now']) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem; margin:0.3rem 0 1.2rem">
+  <b>Net since</b> = production banked from players received minus players given up, since each trade.
+  Positive = winning your trades.
+</p>
+{% endif %}
+
 {% if not has_league %}
   <p class="muted">Sync a league first: <code>python -m fantasybb.league refresh</code></p>
 {% elif not trades %}

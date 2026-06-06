@@ -315,7 +315,9 @@ def trades():
     leagues = Q.league_keys(conn)
     league_key = request.args.get("league") or (leagues[0] if leagues else None)
     rows = Q.trade_factors(conn, league_key, yr) if league_key else []
-    return render_template("trades.html", trades=rows, has_league=bool(league_key))
+    board = Q.manager_trade_scoreboard(conn, league_key, yr, rows) if league_key else []
+    return render_template("trades.html", trades=rows, board=board,
+                           has_league=bool(league_key))
 
 
 @app.route("/weekly")

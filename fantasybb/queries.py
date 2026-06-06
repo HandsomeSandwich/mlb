@@ -584,6 +584,28 @@ def _form_arrow(recent, season_rate, lower_better):
     return "▲" if better else ("▼" if worse else "→")
 
 
+def manager_trade_scoreboard(conn, league_key, season, trades=None):
+    """League table of who's net-winning their trades (since each trade date)."""
+    trades = trades if trades is not None else trade_factors(conn, league_key, season)
+    agg = defaultdict(lambda: {"trades": 0, "wins": 0, "net_since": 0.0, "net_now": 0.0})
+    for t in trades:
+        if len(t["sides"]) != 2:
+            continue
+        a, b = t["sides"]
+        for me, opp in ((a, b), (b, a)):
+            r = agg[me["mgr"]]
+            r["trades"] += 1
+            r["net_since"] += me["since"] - opp["since"]
+            r["net_now"] += me["now"] - opp["now"]
+            if me["since"] >= opp["since"]:
+                r["wins"] += 1
+    rows = [{"mgr": m, "trades": v["trades"], "wins": v["wins"],
+             "losses": v["trades"] - v["wins"], "net_since": round(v["net_since"], 1),
+             "net_now": round(v["net_now"], 1)} for m, v in agg.items()]
+    rows.sort(key=lambda x: x["net_since"], reverse=True)
+    return rows
+
+
 def _since_trade(conn, pid, kind, since_date):
     """A player's accumulated game-log production from `since_date` onward."""
     if kind == "pit":
