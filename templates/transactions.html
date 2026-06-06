@@ -9,6 +9,17 @@
   </div>
 {% else %}
 <h1 class="page-title">Transaction analysis <span class="muted">— {{ meta['name'] if meta }}</span></h1>
+{% if league_options and league_options|length > 1 %}
+<div style="margin:-0.5rem 0 0.6rem">
+  <label class="muted" style="font-size:0.8rem">League / season:
+    <select onchange="const u=new URL(location); u.searchParams.set('league', this.value); location=u">
+      {% for lg in league_options %}
+        <option value="{{ lg['league_key'] }}" {{ 'selected' if lg['league_key'] == league_key }}>{{ lg['name'] }} ({{ lg['league_key'] }})</option>
+      {% endfor %}
+    </select>
+  </label>
+</div>
+{% endif %}
 <p class="muted" style="margin-top:-0.4rem; max-width:70ch">
   Patterns across the last {{ a['n_txns'] }} league transactions. These are
   <b>signals worth a look, not proof of collusion</b> — most have innocent
@@ -46,6 +57,26 @@
       <td>{{ r['vs_avg'] if r['vs_avg'] is not none else '—' }}</td>
       <td>{{ r['baseline'] }}</td>
       <td class="{{ 'hl' if r['ramp'] and r['ramp'] >= 1.5 }}">{{ ('%.2f×'|format(r['ramp'])) if r['ramp'] else '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if engagement %}
+<h2 class="section-head">Owner engagement</h2>
+<p class="muted" style="margin-top:-0.4rem">Total moves, when each manager was last active, and how long they'd gone quiet by the most recent transaction — a quick read on who's checked out.</p>
+<div class="table-wrap" style="max-width:560px">
+<table class="stats">
+  <thead><tr><th class="txt">Manager</th><th class="num">Moves</th><th class="txt">Last active</th><th class="num">Idle (days)</th></tr></thead>
+  <tbody>
+  {% for r in engagement %}
+    <tr>
+      <td class="txt name">{{ r['mgr'] }}</td>
+      <td class="hl">{{ r['moves'] }}</td>
+      <td class="txt">{{ r['last'] }}</td>
+      <td class="{{ 'cold-txt' if r['idle'] >= 21 }}">{{ r['idle'] }}</td>
     </tr>
   {% endfor %}
   </tbody>

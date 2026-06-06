@@ -274,6 +274,8 @@ def transactions():
         "transactions.html", leagues=leagues, league_key=league_key, meta=meta,
         a=Q.transactions_analysis(conn, league_key),
         opp=Q.opponent_behavior(conn, league_key),
+        engagement=Q.owner_engagement(conn, league_key),
+        league_options=Q.league_options(conn),
     )
 
 

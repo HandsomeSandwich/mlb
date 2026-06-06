@@ -173,8 +173,8 @@ def fetch_schedule(team_key, cfg, my_keys):
     return out
 
 
-def fetch_transactions(lk, cfg, max_txns=600):
-    """Paginate the transaction log for deeper history."""
+def fetch_transactions(lk, cfg, max_txns=2000):
+    """Paginate the transaction log for deeper history (full season)."""
     out = []
     seen = set()
     start = 0

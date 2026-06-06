@@ -952,6 +952,42 @@ def buy_sell(conn, season, min_pa=150, limit=12):
     return {"points": points, "buy": buy, "sell": sell, "n": len(rows)}
 
 
+def league_options(conn):
+    """All leagues stored, newest season first, for the league switcher."""
+    return conn.execute(
+        "SELECT league_key, name, current_week FROM league_meta "
+        "ORDER BY league_key DESC").fetchall()
+
+
+def owner_engagement(conn, league_key):
+    """Per-manager transaction activity: total moves, last active, days idle."""
+    import datetime as _d
+    rows = conn.execute(
+        """SELECT m.team AS team, COUNT(DISTINCT t.txn_key) AS moves,
+                  MAX(t.ts) AS last_ts, MIN(t.ts) AS first_ts
+           FROM transactions t
+           JOIN (SELECT txn_key, source_team AS team FROM transaction_moves
+                 WHERE source_team NOT IN ('waivers','freeagents','commish')
+                 UNION ALL
+                 SELECT txn_key, dest_team FROM transaction_moves
+                 WHERE dest_team NOT IN ('waivers','freeagents','commish')) m
+             ON m.txn_key = t.txn_key
+           WHERE t.league_key = ? AND m.team IS NOT NULL
+           GROUP BY m.team""", (league_key,)).fetchall()
+    mgr = team_managers(conn, league_key)
+    league_last = max((r["last_ts"] for r in rows), default=0)
+    out = []
+    for r in rows:
+        out.append({
+            "team": r["team"], "mgr": mgr.get(r["team"]) or r["team"],
+            "moves": r["moves"],
+            "last": _d.datetime.fromtimestamp(r["last_ts"]).strftime("%b %d"),
+            "idle": round((league_last - r["last_ts"]) / 86400) if league_last else 0,
+        })
+    out.sort(key=lambda x: x["moves"], reverse=True)
+    return out
+
+
 def db_status(conn):
     """Counts for the footer / status line so the user can see ingest progress."""
     g = lambda q: conn.execute(q).fetchone()[0]  # noqa: E731
