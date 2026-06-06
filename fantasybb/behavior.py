@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import bisect
 import datetime as _dt
+import math
 from collections import defaultdict
 
 POOLS = {None, "", "waivers", "freeagents", "commish"}
@@ -243,6 +244,14 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
         exp = (give[d] * recv[a] / total_feed) if total_feed else 0
         return (round(c / exp, 2) if exp > 0 else None), round(exp, 1)
 
+    def residual(d, a):
+        """Adjusted residual: std deviations above the activity-expected count.
+        Silences the busy-manager noise -- only large positive z is real signal."""
+        o = feed.get((d, a), 0)
+        exp = (give[d] * recv[a] / total_feed) if total_feed else 0
+        denom = math.sqrt(exp * (1 - give[d] / total_feed) * (1 - recv[a] / total_feed)) if (exp > 0 and total_feed) else 0
+        return round((o - exp) / denom, 2) if denom > 0 else None
+
     timing = {}
     for p in timing_similarity(txns, window=900):
         timing[tuple(sorted((p["a"], p["b"])))] = p["co"]
@@ -268,6 +277,10 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
             oi_ab, exp_ab = over_index(A, B)
             oi_ba, exp_ba = over_index(B, A)
             max_oi = max([x for x in (oi_ab, oi_ba) if x is not None], default=None)
+            z_ab, z_ba = residual(A, B), residual(B, A)
+            # "real" signal needs both magnitude (>=4 events) and significance (z>=2)
+            sig_z = max([z for z, o in ((z_ab, fab), (z_ba, fba))
+                         if z is not None and o >= 4], default=None)
             # rank on coordination *beyond chance*: trades + timing + how far the
             # feeding exceeds its volume-expected baseline.
             excess = max(0, (fab - exp_ab)) + max(0, (fba - exp_ba))
@@ -275,6 +288,7 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
             pairs.append({
                 "a": A, "b": B, "feed_ab": fab, "feed_ba": fba,
                 "oi_ab": oi_ab, "oi_ba": oi_ba, "max_oi": max_oi,
+                "z_ab": z_ab, "z_ba": z_ba, "sig_z": sig_z,
                 "exp_ab": exp_ab, "exp_ba": exp_ba,
                 "feed_players_ab": feed_players.get((A, B), [])[:5],
                 "feed_players_ba": feed_players.get((B, A), [])[:5],

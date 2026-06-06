@@ -887,6 +887,8 @@ def collusion_view(conn, league_key, focus=None):
     focus = focus or SUSPECTED_PAIRS
     focus_cards = [{"a": a, "b": b, "pair": find(a, b)} for a, b in focus]
     hub_pairs = [p for p in pairs if SUSPECTED_HUB in (p["a"], p["b"])]
+    sig_pairs = sorted([p for p in pairs if (p.get("sig_z") or 0) >= 2],
+                       key=lambda p: -(p["sig_z"] or 0))
     mgr = team_managers(conn, league_key)
     hub_score = {h["team"]: h["score"] for h in hubs}
     nodes = [{"id": t, "label": (mgr.get(t) or t), "value": hub_score.get(t, 1),
@@ -908,6 +910,7 @@ def collusion_view(conn, league_key, focus=None):
             "managers": mgr, "dupes": duplicate_managers(conn, league_key),
             "slips": slip_detector(conn, league_key),
             "cycling": roster_cycling(conn, league_key),
+            "regression": sig_pairs,
             "graph": {"nodes": nodes, "edges": edges}}
 
 

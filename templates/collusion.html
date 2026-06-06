@@ -48,6 +48,36 @@
 <p class="muted" style="font-size:0.82rem">No manager nickname appears on two teams, and Yahoo masks account IDs — so there's no direct “one person, two rosters” proof in the data. The signals below are about <em>behavior</em>.</p>
 {% endif %}
 
+<h2 class="section-head">📊 Noise-adjusted coordination (regression)</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:78ch">
+  The honest test: model how much each pair <em>should</em> feed each other given both
+  managers' activity, then measure the residual — <b>z</b> = standard deviations above
+  that expectation. This strips out the “busy managers overlap” noise. Only pairs that
+  are both sizable (4+ events) and <b>z ≥ 2</b> show here. <b>z ≥ 3</b> would be a real
+  red flag.
+</p>
+{% if cv['regression'] %}
+<table class="stats" style="max-width:520px">
+  <thead><tr><th class="txt">Pair</th><th class="num">z</th><th class="num">A→B</th><th class="num">B→A</th></tr></thead>
+  <tbody>
+  {% for p in cv['regression'] %}
+    <tr>
+      <td class="txt name">{{ mgr.get(p['a']) or p['a'] }} ↔ {{ mgr.get(p['b']) or p['b'] }}</td>
+      <td class="hl">{{ p['sig_z'] }}{% if p['sig_z'] >= 3 %} 🚩{% endif %}</td>
+      <td>{{ p['feed_ab'] }} (z{{ p['z_ab'] }})</td>
+      <td>{{ p['feed_ba'] }} (z{{ p['z_ba'] }})</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted" style="font-size:0.8rem">Suggestive, not conclusive — none here reach the z ≥ 3 red-flag bar.</p>
+{% else %}
+<p class="muted">✓ <b>Nothing clears the bar.</b> Once activity is controlled for, no pair's feeding
+  is statistically unusual (no sizable pair at z ≥ 2). The drop→add “feeding” signal is
+  <b>noise</b> — exactly what you'd expect from managers of differing activity levels.
+  The real evidence lives in the slip detector and trade outcomes, not here.</p>
+{% endif %}
+
 {% if cv['graph'] and cv['graph']['edges'] %}
 <h2 class="section-head">Coordination map</h2>
 <p class="muted" style="margin-top:-0.4rem; max-width:74ch">
