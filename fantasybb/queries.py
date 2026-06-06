@@ -5,6 +5,9 @@ input) so the sort param can't be used for SQL injection.
 """
 from __future__ import annotations
 
+import math
+import re
+
 # column -> SQL expression, for each leaderboard. Keys are what the UI sends.
 HITTER_SORTS = {
     "name": "p.full_name", "team": "t.abbreviation", "g": "b.g", "pa": "b.pa",
@@ -194,6 +197,166 @@ def recent_window(conn, days: int):
     end = latest_game_date(conn)
     start = conn.execute("SELECT date(?, ?)", (end, f"-{int(days)} days")).fetchone()[0]
     return start, end
+
+
+# ---------------------------------------------------------------------------
+# Trade analyzer — standard 5x5 roto z-score valuation.
+#
+# A player's fantasy value is the sum of how many standard deviations above /
+# below the league pool they are in each scoring category:
+#   Hitters:  R, HR, RBI, SB, AVG
+#   Pitchers: W, SV, K(SO), ERA, WHIP
+# Counting cats (R/HR/RBI/SB, W/SV/SO) are z-scored directly. Rate cats
+# (AVG/ERA/WHIP) are first converted to a playing-time-weighted "impact" — so a
+# .300 hitter over 600 AB is worth far more than a .300 hitter over 50 AB — then
+# z-scored. This is the textbook fantasy-valuation method; the "pool" of
+# rosterable players below stands in for league average. Two-way players (Ohtani)
+# get both a hitter and a pitcher value, summed. Values are based on realized
+# season production in the DB, not projections.
+# ---------------------------------------------------------------------------
+HITTER_POOL_MIN_PA = 250        # ~ the hitters a standard league would roster
+PITCHER_POOL_MIN_OUTS = 90      # 30 IP — low enough to keep closers (saves) in
+
+
+def _mean_std(vals: list[float]) -> tuple[float, float]:
+    n = len(vals)
+    if n == 0:
+        return 0.0, 1.0
+    mean = sum(vals) / n
+    var = sum((v - mean) ** 2 for v in vals) / n
+    return mean, (math.sqrt(var) or 1.0)
+
+
+def hitter_pool(conn, min_pa: int = HITTER_POOL_MIN_PA) -> dict:
+    """Per-category mean/std (and league AVG) over the rosterable hitter pool."""
+    rows = conn.execute(
+        "SELECT r, hr, rbi, sb, ab, h FROM batting_season WHERE pa >= ? AND ab > 0",
+        (min_pa,),
+    ).fetchall()
+    tot_ab = sum(r["ab"] for r in rows) or 1
+    lg_avg = sum(r["h"] for r in rows) / tot_ab
+    meta = {c: _mean_std([r[c] or 0 for r in rows]) for c in ("r", "hr", "rbi", "sb")}
+    # AVG impact = hits above what a league-average hitter makes in those ABs.
+    meta["avg"] = _mean_std([(r["h"] or 0) - lg_avg * (r["ab"] or 0) for r in rows])
+    meta["lg_avg"], meta["n"] = lg_avg, len(rows)
+    return meta
+
+
+def pitcher_pool(conn, min_outs: int = PITCHER_POOL_MIN_OUTS) -> dict:
+    """Per-category mean/std (and league ERA/WHIP) over the rosterable arms."""
+    rows = conn.execute(
+        "SELECT w, sv, so, er, outs, h, bb FROM pitching_season WHERE outs >= ?",
+        (min_outs,),
+    ).fetchall()
+    tot_ip = (sum(r["outs"] or 0 for r in rows) or 1) / 3
+    lg_era = sum(r["er"] or 0 for r in rows) * 9 / tot_ip
+    lg_whip = sum((r["h"] or 0) + (r["bb"] or 0) for r in rows) / tot_ip
+    meta = {c: _mean_std([r[c] or 0 for r in rows]) for c in ("w", "sv", "so")}
+    # ERA/WHIP impact: runs / baserunners saved vs. a league-average arm over the
+    # same innings. Positive = better than league (i.e. lower ERA/WHIP).
+    meta["era"] = _mean_std(
+        [lg_era * ((r["outs"] or 0) / 3) - 9 * (r["er"] or 0) for r in rows])
+    meta["whip"] = _mean_std(
+        [lg_whip * ((r["outs"] or 0) / 3) - ((r["h"] or 0) + (r["bb"] or 0)) for r in rows])
+    meta["lg_era"], meta["lg_whip"], meta["n"] = lg_era, lg_whip, len(rows)
+    return meta
+
+
+def value_hitter(line, meta: dict) -> dict | None:
+    if line is None or not line["ab"]:
+        return None
+    comps = {c.upper(): ((line[c] or 0) - meta[c][0]) / meta[c][1]
+             for c in ("r", "hr", "rbi", "sb")}
+    ai = (line["h"] or 0) - meta["lg_avg"] * (line["ab"] or 0)
+    comps["AVG"] = (ai - meta["avg"][0]) / meta["avg"][1]
+    return {"total": sum(comps.values()), "comps": comps}
+
+
+def value_pitcher(line, meta: dict) -> dict | None:
+    if line is None or not line["outs"]:
+        return None
+    comps = {c.upper(): ((line[c] or 0) - meta[c][0]) / meta[c][1]
+             for c in ("w", "sv", "so")}
+    ip = (line["outs"] or 0) / 3
+    era_imp = meta["lg_era"] * ip - 9 * (line["er"] or 0)
+    whip_imp = meta["lg_whip"] * ip - ((line["h"] or 0) + (line["bb"] or 0))
+    comps["ERA"] = (era_imp - meta["era"][0]) / meta["era"][1]
+    comps["WHIP"] = (whip_imp - meta["whip"][0]) / meta["whip"][1]
+    return {"total": sum(comps.values()), "comps": comps}
+
+
+def parse_player_names(text: str | None) -> list[str]:
+    """Split a free-text side ('Soto, Soriano & Schmitt') into player names."""
+    if not text:
+        return []
+    parts = re.split(r"[\n,]+|\s&\s|\s+and\s+", text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def search_players(conn, q: str, limit: int = 6):
+    """Name-search candidates, most-played first (best match leads)."""
+    return conn.execute(
+        """SELECT p.player_id, p.full_name, p.position, t.abbreviation AS team,
+                  COALESCE(bs.pa, 0) AS pa, COALESCE(ps.outs, 0) AS outs
+           FROM players p
+           LEFT JOIN teams t ON t.team_id = p.team_id
+           LEFT JOIN batting_season bs ON bs.player_id = p.player_id
+           LEFT JOIN pitching_season ps ON ps.player_id = p.player_id
+           WHERE p.full_name LIKE ?
+           ORDER BY (COALESCE(bs.pa, 0) + COALESCE(ps.outs, 0)) DESC, p.full_name
+           LIMIT ?""",
+        (f"%{q.strip()}%", limit),
+    ).fetchall()
+
+
+def evaluate_side(conn, names: list[str], hmeta: dict, pmeta: dict) -> dict:
+    """Resolve each name to its best match and value it. Returns side summary."""
+    players, unmatched, total = [], [], 0.0
+    for name in names:
+        matches = search_players(conn, name)
+        if not matches:
+            unmatched.append(name)
+            continue
+        best = matches[0]
+        bat = batting_season_row(conn, best["player_id"])
+        pit = pitching_season_row(conn, best["player_id"])
+        hv = value_hitter(bat, hmeta)
+        pv = value_pitcher(pit, pmeta)
+        val = (hv["total"] if hv else 0.0) + (pv["total"] if pv else 0.0)
+        total += val
+        players.append({
+            "row": best, "query": name, "value": val, "hit": hv, "pit": pit and pv,
+            # alternative matches help the user spot a wrong auto-pick
+            "alts": [m for m in matches[1:] if m["full_name"] != best["full_name"]],
+        })
+    return {"players": players, "unmatched": unmatched, "total": total}
+
+
+def evaluate_trade(conn, a_names: list[str], b_names: list[str]) -> dict:
+    """Value both sides and render a verdict. The pools are computed once."""
+    hmeta, pmeta = hitter_pool(conn), pitcher_pool(conn)
+    side_a = evaluate_side(conn, a_names, hmeta, pmeta)
+    side_b = evaluate_side(conn, b_names, hmeta, pmeta)
+    delta = side_a["total"] - side_b["total"]      # + => side A gets more value
+    mag = abs(delta)
+    if mag < 1.0:
+        verdict, winner = "Even trade", None
+    elif mag < 3.0:
+        verdict, winner = "Slight edge", ("A" if delta > 0 else "B")
+    elif mag < 6.0:
+        verdict, winner = "Clear edge", ("A" if delta > 0 else "B")
+    else:
+        verdict, winner = "Lopsided", ("A" if delta > 0 else "B")
+    # Balance bar: share of total positive value (only meaningful when both > 0).
+    share_a = None
+    if side_a["total"] > 0 and side_b["total"] > 0:
+        share_a = side_a["total"] / (side_a["total"] + side_b["total"]) * 100
+    return {
+        "a": side_a, "b": side_b, "delta": delta, "verdict": verdict,
+        "winner": winner, "share_a": share_a,
+        "pool": {"hitters": hmeta["n"], "pitchers": pmeta["n"],
+                 "min_pa": HITTER_POOL_MIN_PA, "min_ip": PITCHER_POOL_MIN_OUTS // 3},
+    }
 
 
 def recent_hitters(conn, *, days=15, min_pa=20, sort="ops", direction="desc", limit=300):
