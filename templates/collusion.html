@@ -48,6 +48,16 @@
 <p class="muted" style="font-size:0.82rem">No manager nickname appears on two teams, and Yahoo masks account IDs — so there's no direct “one person, two rosters” proof in the data. The signals below are about <em>behavior</em>.</p>
 {% endif %}
 
+{% if cv['graph'] and cv['graph']['edges'] %}
+<h2 class="section-head">Coordination map</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:74ch">
+  Each dot is a manager (bigger = more total coordination). <span style="color:#f0883e">Orange arrows</span>
+  = drop→add feeding (points from dropper to adder); <span style="color:#58a6ff">blue lines</span> = trades.
+  Drag nodes around; hover an edge for details. <b>{{ cv['managers'].get(cv['hub_name']) }}</b> is highlighted.
+</p>
+<div id="netgraph" class="net-box"></div>
+{% endif %}
+
 {% if cv['slips'] %}
 <h2 class="section-head">🔍 Account-slip detector</h2>
 <p class="muted" style="margin-top:-0.4rem; max-width:74ch">
@@ -144,5 +154,31 @@
     </div>
   {% endfor %}
 </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if cv and cv['graph'] and cv['graph']['edges'] %}
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+const G = {{ cv['graph']|tojson }};
+const nodes = G.nodes.map(n => ({
+  id: n.id, label: n.label, value: Math.max(n.value, 1),
+  color: n.hub ? { background: '#f85149', border: '#b62324' }
+                : { background: '#1c2230', border: '#2a3140' },
+  font: { color: '#e6edf3' }
+}));
+const edges = G.edges.map(e => e.kind === 'trade'
+  ? { from: e.from, to: e.to, value: e.value, title: e.title, arrows: 'to,from',
+      color: { color: '#58a6ff' }, smooth: { type: 'curvedCW', roundness: 0.2 } }
+  : { from: e.from, to: e.to, value: e.value, title: e.title, arrows: 'to',
+      color: { color: '#f0883e', opacity: 0.7 }, smooth: { type: 'curvedCW', roundness: 0.15 } });
+new vis.Network(document.getElementById('netgraph'), { nodes, edges }, {
+  nodes: { shape: 'dot', scaling: { min: 8, max: 40 }, borderWidth: 2 },
+  edges: { scaling: { min: 1, max: 8 } },
+  physics: { barnesHut: { gravitationalConstant: -6000, springLength: 130 }, stabilization: { iterations: 200 } },
+  interaction: { hover: true, tooltipDelay: 120 }
+});
+</script>
 {% endif %}
 {% endblock %}

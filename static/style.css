@@ -307,6 +307,13 @@ tr.grp-pit td:first-child { border-left: 2px solid var(--accent); }
 .hub-bar span { display: block; height: 100%; background: var(--accent); border-radius: 7px; }
 .hub-score { min-width: 38px; text-align: right; font-weight: 700; color: var(--hl); font-variant-numeric: tabular-nums; }
 
+/* ---- charts ---- */
+.chart-box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem; margin-top: 0.5rem; }
+.chart-box canvas { max-width: 100%; }
+.net-box { height: 460px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; margin-top: 0.5rem; }
+
 /* ---- status footer ---- */
 .statusbar {
   max-width: 1200px; margin: 0 auto; padding: 1rem 1.25rem 2rem;

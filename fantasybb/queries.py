@@ -189,6 +189,46 @@ def pitching_log(conn, player_id: int, season: int, limit=200):
     ).fetchall()
 
 
+def rolling_form(conn, player_id: int, season: int, kind: str, window=15):
+    """A smoothed game-by-game form line: rolling-`window` OPS (bat) or ERA (pit)."""
+    if kind == "pit":
+        rows = conn.execute(
+            "SELECT game_date, outs, er, h, bb FROM pitching_games "
+            "WHERE player_id=? AND substr(game_date,1,4)=? ORDER BY game_date",
+            (player_id, str(season))).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT game_date, ab, h, bb, hbp, sac_flies, tb FROM batting_games "
+            "WHERE player_id=? AND substr(game_date,1,4)=? ORDER BY game_date",
+            (player_id, str(season))).fetchall()
+    series = []
+    for i in range(len(rows)):
+        w = rows[max(0, i - window + 1): i + 1]
+        if kind == "pit":
+            outs = sum(r["outs"] or 0 for r in w)
+            er = sum(r["er"] or 0 for r in w)
+            val = round(9 * er / (outs / 3), 2) if outs else None
+        else:
+            ab = sum(r["ab"] or 0 for r in w)
+            h = sum(r["h"] or 0 for r in w)
+            bb = sum(r["bb"] or 0 for r in w)
+            hbp = sum(r["hbp"] or 0 for r in w)
+            sf = sum(r["sac_flies"] or 0 for r in w)
+            tb = sum(r["tb"] or 0 for r in w)
+            den = ab + bb + hbp + sf
+            val = round((h + bb + hbp) / den + (tb / ab), 3) if (ab and den) else None
+        series.append({"date": rows[i]["game_date"][5:], "v": val})
+    return series
+
+
+def weekly_overlay(conn, player_id: int, kind: str):
+    """{season: [{week, v}]} of weekly OPS/ERA, for the year-over-year chart."""
+    data = weekly_splits(conn, player_id, kind)
+    key = "era" if kind == "pit" else "ops"
+    return {s: [{"week": w["week"], "v": w.get(key)} for w in weeks]
+            for s, weeks in data.items()}
+
+
 def player_seasons(conn, player_id: int) -> list[int]:
     """Seasons this player has a batting or pitching line for, newest first."""
     rows = conn.execute(
@@ -615,11 +655,107 @@ def collusion_view(conn, league_key, focus=None):
     focus = focus or SUSPECTED_PAIRS
     focus_cards = [{"a": a, "b": b, "pair": find(a, b)} for a, b in focus]
     hub_pairs = [p for p in pairs if SUSPECTED_HUB in (p["a"], p["b"])]
+    mgr = team_managers(conn, league_key)
+    hub_score = {h["team"]: h["score"] for h in hubs}
+    nodes = [{"id": t, "label": (mgr.get(t) or t), "value": hub_score.get(t, 1),
+              "hub": (t == SUSPECTED_HUB)} for t in mgr]
+    edges = []
+    for p in pairs:
+        a, b = p["a"], p["b"]
+        if p["feed_ab"]:
+            edges.append({"from": a, "to": b, "value": p["feed_ab"], "kind": "feed",
+                          "title": f"{mgr.get(a)} → {mgr.get(b)}: fed {p['feed_ab']} (×{p['oi_ab']})"})
+        if p["feed_ba"]:
+            edges.append({"from": b, "to": a, "value": p["feed_ba"], "kind": "feed",
+                          "title": f"{mgr.get(b)} → {mgr.get(a)}: fed {p['feed_ba']} (×{p['oi_ba']})"})
+        if p["trades"]:
+            edges.append({"from": a, "to": b, "value": p["trades"] * 2, "kind": "trade",
+                          "title": f"{mgr.get(a)} ↔ {mgr.get(b)}: {p['trades']} trade(s)"})
     return {"pairs": pairs, "hubs": hubs, "focus": focus_cards,
             "hub_name": SUSPECTED_HUB, "hub_pairs": hub_pairs,
-            "managers": team_managers(conn, league_key),
-            "dupes": duplicate_managers(conn, league_key),
-            "slips": slip_detector(conn, league_key)}
+            "managers": mgr, "dupes": duplicate_managers(conn, league_key),
+            "slips": slip_detector(conn, league_key),
+            "graph": {"nodes": nodes, "edges": edges}}
+
+
+# Yahoo category stat_id -> (label, group, SQL expr, higher_is_better, min filter)
+CAT_MAP = {
+    7:  ("R", "bat", "b.r", True, "b.pa>=50"),
+    12: ("HR", "bat", "b.hr", True, "b.pa>=50"),
+    13: ("RBI", "bat", "b.rbi", True, "b.pa>=50"),
+    3:  ("AVG", "bat", "b.avg", True, "b.pa>=80"),
+    55: ("OPS", "bat", "b.ops", True, "b.pa>=80"),
+    62: ("Net SB", "bat", "(b.sb-b.cs)", True, "b.pa>=40"),
+    21: ("K (bat)", "bat", "b.so", False, "b.pa>=80"),
+    28: ("W", "pit", "ps.w", True, "ps.outs>=30"),
+    42: ("K", "pit", "ps.so", True, "ps.outs>=30"),
+    26: ("ERA", "pit", "ps.era", False, "ps.outs>=60"),
+    27: ("WHIP", "pit", "ps.whip", False, "ps.outs>=60"),
+    50: ("IP", "pit", "ps.outs", True, "ps.outs>=30"),
+    38: ("HR allowed", "pit", "ps.hr", False, "ps.outs>=60"),
+    90: ("Net SV+H", "pit", "(ps.sv+ps.hld)", True, "ps.outs>=15"),
+}
+_RATE_CATS = {"AVG", "OPS", "ERA", "WHIP"}
+
+
+def category_targets(conn, league_key, season, per_cat=6):
+    """For each category I'm weak in, the best AVAILABLE players to target."""
+    ranks = league_ranks(conn, league_key)
+    out = []
+    for c in ranks:
+        sid = next((s for s, m in CAT_MAP.items() if m[0] == c["label"]), None)
+        # only surface categories I'm in the bottom third of, and that we can map
+        if sid is None or not c["my_rank"] or c["my_rank"] <= (2 * c["n"] / 3.0):
+            continue
+        label, group, expr, hi, minf = CAT_MAP[sid]
+        tbl = "batting_season b" if group == "bat" else "pitching_season ps"
+        order = "DESC" if hi else "ASC"
+        line = ("b.hr||' HR · '||b.r||' R · '||b.sb||' SB · '||COALESCE(b.avg,'')||' AVG'"
+                if group == "bat" else
+                "ps.w||'W '||ps.sv||'SV · '||ps.so||'K · '||COALESCE(ps.era,'')||' ERA'")
+        rows = conn.execute(
+            f"""SELECT p.player_id, p.full_name, p.position, t.abbreviation AS team,
+                       {expr} AS val, {line} AS line
+                FROM availability av
+                JOIN players p ON p.player_id = av.player_id
+                LEFT JOIN teams t ON t.team_id = p.team_id
+                JOIN {tbl} ON {'b' if group=='bat' else 'ps'}.player_id = p.player_id
+                     AND {'b' if group=='bat' else 'ps'}.season = ?
+                WHERE av.league_key = ? AND {minf} AND {expr} IS NOT NULL
+                ORDER BY {expr} {order} LIMIT ?""",
+            (season, league_key, per_cat)).fetchall()
+        out.append({"label": label, "my_rank": c["my_rank"], "n": c["n"],
+                    "is_rate": label in _RATE_CATS, "lower_better": not hi,
+                    "targets": rows})
+    return out
+
+
+def buy_sell(conn, season, min_pa=150, limit=12):
+    """Expected AVG vs actual AVG: who's been unlucky (buy) vs lucky (sell).
+
+    Statcast xBA is *on contact*, so we deflate it by strikeout rate
+    (xBA * (AB-SO)/AB) to get a full-season expected average comparable to the
+    real AVG. luck = expected - actual: positive => unlucky => BUY LOW.
+    """
+    rows = conn.execute(
+        """SELECT p.player_id, p.full_name, t.abbreviation AS team,
+                  b.avg, s.xwoba, b.pa, b.ops, b.hr, s.barrel_pct,
+                  ROUND(s.xba * (b.ab - b.so) * 1.0 / NULLIF(b.ab, 0), 3) AS xavg,
+                  ROUND(s.xba * (b.ab - b.so) * 1.0 / NULLIF(b.ab, 0) - b.avg, 3) AS luck
+           FROM statcast_batting s
+           JOIN batting_season b ON b.player_id = s.player_id AND b.season = s.season
+           JOIN players p USING(player_id)
+           LEFT JOIN teams t ON t.team_id = p.team_id
+           WHERE s.season = ? AND b.pa >= ? AND s.xba IS NOT NULL
+                 AND b.avg IS NOT NULL AND b.ab > 0
+           ORDER BY luck DESC""",
+        (season, min_pa)).fetchall()
+    rows = [r for r in rows if r["luck"] is not None]
+    buy = rows[:limit]
+    sell = sorted(rows, key=lambda r: r["luck"])[:limit]
+    points = [{"x": r["xavg"], "y": r["avg"], "n": r["full_name"], "pa": r["pa"]}
+              for r in rows]
+    return {"points": points, "buy": buy, "sell": sell, "n": len(rows)}
 
 
 def db_status(conn):

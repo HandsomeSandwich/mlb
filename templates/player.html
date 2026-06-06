@@ -21,9 +21,23 @@
   {% endif %}
 </div>
 
+{% if (rolling and rolling|length > 1) or (overlay and overlay|length > 1) %}
+<section class="panel">
+  <h2>Trends</h2>
+  {% if rolling and rolling|length > 1 %}
+  <h3 class="muted" style="margin:0.2rem 0">Rolling 15-game {{ 'ERA' if kind == 'pit' else 'OPS' }} — {{ player_season }}</h3>
+  <div class="chart-box"><canvas id="rollChart" height="190"></canvas></div>
+  {% endif %}
+  {% if overlay and overlay|length > 1 %}
+  <h3 class="muted" style="margin:0.9rem 0 0.2rem">Week by week, year over year</h3>
+  <div class="chart-box"><canvas id="weekChart" height="190"></canvas></div>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if bat %}
 <section class="panel">
-  <h2>Batting — 2025 season</h2>
+  <h2>Batting — {{ player_season }} season</h2>
   <table class="stats line">
     <thead><tr>
       <th class="num">G</th><th class="num">PA</th><th class="num">AB</th><th class="num">R</th>
@@ -138,5 +152,50 @@
 
 {% if not bat and not pit %}
   <p class="empty">No season stats recorded for this player.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if (rolling and rolling|length > 1) or (overlay and overlay|length > 1) %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const KIND = {{ kind|tojson }};
+const AX = { ticks: { color: '#8b949e' }, grid: { color: '#20262f' } };
+const baseOpts = (yTitle) => ({
+  plugins: { legend: { display: true, labels: { color: '#8b949e' } } },
+  scales: { x: AX, y: { ...AX, title: { display: true, text: yTitle, color: '#8b949e' } } },
+  elements: { point: { radius: 0 } }, maintainAspectRatio: true
+});
+
+const R = {{ rolling|tojson }};
+if (R && R.length > 1 && document.getElementById('rollChart')) {
+  new Chart(document.getElementById('rollChart'), {
+    type: 'line',
+    data: { labels: R.map(p => p.date),
+      datasets: [{ label: KIND === 'pit' ? 'Rolling ERA' : 'Rolling OPS',
+        data: R.map(p => p.v), borderColor: '#f0883e', backgroundColor: '#f0883e22',
+        tension: 0.25, fill: true, spanGaps: true }] },
+    options: baseOpts(KIND === 'pit' ? 'ERA' : 'OPS')
+  });
+}
+
+const OV = {{ overlay|tojson }};
+const seasons = OV ? Object.keys(OV) : [];
+if (seasons.length > 1 && document.getElementById('weekChart')) {
+  const colors = { [seasons[0]]: '#8b949e', [seasons[seasons.length-1]]: '#f0883e' };
+  const weeks = [...new Set([].concat(...seasons.map(s => OV[s].map(w => w.week))))].sort((a,b)=>a-b);
+  new Chart(document.getElementById('weekChart'), {
+    type: 'line',
+    data: { labels: weeks.map(w => 'W' + w),
+      datasets: seasons.map(s => {
+        const m = Object.fromEntries(OV[s].map(w => [w.week, w.v]));
+        return { label: s, data: weeks.map(w => m[w] ?? null),
+          borderColor: colors[s] || '#3fb950', tension: 0.25, spanGaps: true,
+          pointRadius: 2 };
+      }) },
+    options: baseOpts(KIND === 'pit' ? 'ERA' : 'OPS')
+  });
+}
+</script>
 {% endif %}
 {% endblock %}

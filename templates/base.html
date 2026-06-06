@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Fantasy Baseball 2025{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block head %}{% endblock %}
 </head>
 <body>
 <header class="topbar">
@@ -12,7 +13,7 @@
   <nav>
     {% set navitems = [('index','Home'), ('hitters','Hitters'), ('pitchers','Pitchers'),
                        ('trends','Hot/Cold'), ('streaming','Streaming'), ('weekly','Weekly'),
-                       ('myteam','My Team'), ('matchup','League'),
+                       ('myteam','My Team'), ('targets','Targets'), ('matchup','League'),
                        ('transactions','Transactions'), ('collusion','Collusion')] %}
     {% for endpoint, label in navitems %}
       <a class="{{ 'active' if request.endpoint == endpoint }}" href="{{ url_for(endpoint) }}">{{ label }}</a>
@@ -43,5 +44,6 @@
   {{ status.statcast }} Statcast profiles
   <span class="src">Data: MLB Stats API + Baseball Savant</span>
 </footer>
+{% block scripts %}{% endblock %}
 </body>
 </html>

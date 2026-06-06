@@ -34,11 +34,14 @@ def refresh_probables(conn, dates: list[str]) -> int:
 
 def refresh_availability(conn, league_key: str) -> int:
     from . import yahoo
-    avail = yahoo.get_available(league_key, position="P")
+    avail = {}
+    for pos in ("B", "P"):  # batters and pitchers
+        for a in yahoo.get_available(league_key, position=pos):
+            avail[a["name"]] = a  # dedupe by name
     lookup = match.build_lookup(conn)
     with conn:
         conn.execute("DELETE FROM availability WHERE league_key=?", (league_key,))
-        for a in avail:
+        for a in avail.values():
             conn.execute(
                 "INSERT OR REPLACE INTO availability "
                 "(league_key, name, player_id, status, position) VALUES (?,?,?,?,?)",

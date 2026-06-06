@@ -295,6 +295,19 @@ def collusion():
     )
 
 
+@app.route("/targets")
+def targets():
+    conn = get_db()
+    yr = selected_season(conn)
+    leagues = Q.league_keys(conn)
+    league_key = (request.args.get("league") or (leagues[0] if leagues else None))
+    cats = Q.category_targets(conn, league_key, yr) if league_key else []
+    return render_template(
+        "targets.html", league_key=league_key, has_league=bool(league_key),
+        cats=cats, buysell=Q.buy_sell(conn, yr),
+    )
+
+
 @app.route("/weekly")
 def weekly():
     conn = get_db()
@@ -335,16 +348,23 @@ def player(player_id):
         return render_template("not_found.html"), 404
     pseasons = Q.player_seasons(conn, player_id)
     yr = selected_season(conn, pseasons) or selected_season(conn)
+    kind = "pit" if (p["position"] == "P") else "bat"
+    if kind == "bat" and not Q.batting_season_row(conn, player_id, yr) \
+            and Q.pitching_season_row(conn, player_id, yr):
+        kind = "pit"
     return render_template(
         "player.html",
         p=p,
         player_season=yr,
         player_seasons=pseasons,
+        kind=kind,
         bat=Q.batting_season_row(conn, player_id, yr),
         pit=Q.pitching_season_row(conn, player_id, yr),
         statcast=Q.statcast_row(conn, player_id, yr),
         bat_log=Q.batting_log(conn, player_id, yr),
         pit_log=Q.pitching_log(conn, player_id, yr),
+        rolling=Q.rolling_form(conn, player_id, yr, kind),
+        overlay=Q.weekly_overlay(conn, player_id, kind),
     )
 
 
