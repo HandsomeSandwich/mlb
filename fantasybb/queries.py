@@ -837,6 +837,44 @@ def slip_detector(conn, league_key, watched=None):
             "n_isolated": len(isolated)}
 
 
+def roster_cycling(conn, league_key, window_h=36):
+    """Tripwire for quick drop→add hand-offs: A drops a player, the SAME other
+    manager adds him within `window_h` hours. Repeated same-pair hits are the
+    roster-stashing tell. (Usually empty — waivers make fast hand-offs hard.)"""
+    import datetime as _d
+    from collections import Counter, defaultdict as _dd
+    pools = behavior.POOLS
+    rows = conn.execute(
+        "SELECT m.player_name pn, t.ts, m.move_type mt, m.source_team src, m.dest_team dst "
+        "FROM transactions t JOIN transaction_moves m ON m.txn_key=t.txn_key "
+        "WHERE t.league_key=? ORDER BY t.ts", (league_key,)).fetchall()
+    ev = _dd(list)
+    for r in rows:
+        ev[r["pn"]].append(r)
+    pair = Counter()
+    samples = _dd(list)
+    recent = []
+    for pn, es in ev.items():
+        for i in range(len(es) - 1):
+            a, b = es[i], es[i + 1]
+            if (a["mt"] == "drop" and b["mt"] == "add" and a["src"] not in pools
+                    and b["dst"] not in pools and a["src"] != b["dst"]
+                    and 0 <= (b["ts"] - a["ts"]) <= window_h * 3600):
+                pair[(a["src"], b["dst"])] += 1
+                samples[(a["src"], b["dst"])].append(pn)
+                recent.append((b["ts"], a["src"], b["dst"], pn, round((b["ts"] - a["ts"]) / 3600, 1)))
+    mgr = team_managers(conn, league_key)
+    flags = [{"dropper": mgr.get(a) or a, "adder": mgr.get(b) or b, "count": n,
+              "players": samples[(a, b)][:5]}
+             for (a, b), n in pair.most_common() if n >= 2]
+    recent.sort(reverse=True)
+    recent_list = [{"when": _d.datetime.fromtimestamp(ts).strftime("%b %d, %H:%M"),
+                    "dropper": mgr.get(a) or a, "adder": mgr.get(b) or b,
+                    "player": pn, "hrs": hrs} for ts, a, b, pn, hrs in recent[:6]]
+    return {"flags": flags, "total": sum(pair.values()), "window_h": window_h,
+            "recent": recent_list}
+
+
 def collusion_view(conn, league_key, focus=None):
     txns = behavior.load_txns(conn, league_key)
     lookup = match.build_lookup(conn)
@@ -869,6 +907,7 @@ def collusion_view(conn, league_key, focus=None):
             "hub_name": SUSPECTED_HUB, "hub_pairs": hub_pairs,
             "managers": mgr, "dupes": duplicate_managers(conn, league_key),
             "slips": slip_detector(conn, league_key),
+            "cycling": roster_cycling(conn, league_key),
             "graph": {"nodes": nodes, "edges": edges}}
 
 

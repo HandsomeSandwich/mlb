@@ -92,6 +92,29 @@
 {% endif %}
 {% endif %}
 
+{% if cv['cycling'] %}
+<h2 class="section-head">🔁 Roster-cycling tripwire</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:74ch">
+  Quick hand-offs — one manager drops a player and the <b>same</b> other manager adds
+  him within {{ cv['cycling']['window_h'] }} hours. Repeated same-pair hand-offs are the
+  roster-stashing tell. (Waivers usually prevent these, so this is normally empty — it's
+  here to catch one the moment it happens.)
+</p>
+{% if cv['cycling']['flags'] %}
+<div class="slip-list">
+  {% for f in cv['cycling']['flags'] %}
+  <div class="slip slip-zero">
+    <div class="slip-top"><span class="slip-when">{{ f['dropper'] }} → {{ f['adder'] }}</span>
+      <span class="slip-gap">{{ f['count'] }}× quick hand-off</span></div>
+    <div class="slip-body">{{ f['players']|join(', ') }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">✓ Clean — no repeated quick hand-offs between any pair{% if cv['cycling']['total'] %} ({{ cv['cycling']['total'] }} isolated sub-{{ cv['cycling']['window_h'] }}h pickups, none repeated){% endif %}.</p>
+{% endif %}
+{% endif %}
+
 <h2 class="section-head">Your suspicions</h2>
 {% for f in cv['focus'] %}
 <div class="focus-card">
