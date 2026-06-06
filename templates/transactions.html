@@ -92,7 +92,7 @@
 </div>
 </div>
 
-<h2 class="section-head">Trades</h2>
+<h2 class="section-head">Trades <a href="{{ url_for('trades') }}" style="font-size:0.7rem; text-transform:none; letter-spacing:0">→ multi-factor breakdown (now vs. should-be)</a></h2>
 {% if a['trades'] %}
 <div class="trade-list">
   {% for tr in a['trades'] %}

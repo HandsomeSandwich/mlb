@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Trade analysis{% endblock %}
+
+{% macro grade(g) %}<span class="grade g-{{ g|lower if g and g != '—' else 'na' }}">{{ g }}</span>{% endmacro %}
+
+{% macro luck_pill(p) %}
+  {%- if p['luck_dir'] == 1 %}<span class="luck up">▲ due up</span>
+  {%- elif p['luck_dir'] == -1 %}<span class="luck down">▼ due down</span>
+  {%- else %}<span class="luck flat">~ on track</span>{% endif -%}
+{% endmacro %}
+
+{% block content %}
+<h1 class="page-title">Trade analysis <span class="muted">— multi-factor</span></h1>
+<p class="muted" style="margin-top:-0.4rem; max-width:80ch">
+  Each trade rated on what the box score shows <b>now</b> (production value) <em>and</em>
+  what's under the hood — <b>luck</b> (hitter: AVG vs expected; pitcher: <b>ERA vs FIP</b>)
+  and <b>skill</b> (xwOBA/barrels, FIP/K-BB). The gap between “who's winning now” and
+  “who got the better underlying” is the edge the buyer may have seen.
+  <b>Grade</b> = underlying quality (A best). <b>▲/▼</b> = recent form.
+</p>
+
+{% if not has_league %}
+  <p class="muted">Sync a league first: <code>python -m fantasybb.league refresh</code></p>
+{% elif not trades %}
+  <p class="muted">No trades found in the loaded data.</p>
+{% else %}
+{% for t in trades %}
+<div class="trade-eval">
+  <div class="te-date">{{ t['when'] }}</div>
+  <div class="te-sides">
+    {% for s in t['sides'] %}
+    <div class="te-side">
+      <div class="te-head">
+        <span class="te-mgr">{{ s['mgr'] }} gets</span>
+        <span class="te-now" title="production value now">now {{ s['now'] }}</span>
+      </div>
+      {% for p in s['players'] %}
+        {% if p.get('thin') %}
+          <div class="te-player"><b>{{ p['name'] }}</b> <span class="muted">— no stats</span></div>
+        {% else %}
+        <div class="te-player">
+          <div class="tp-top">{{ grade(p['grade']) }}
+            <a href="{{ url_for('player', player_id=p['pid']) }}?season={{ season }}">{{ p['name'] }}</a>
+            <span class="tp-form">{{ p['form'] }}</span>{{ luck_pill(p) }}
+          </div>
+          <div class="tp-prod">{{ p['prod'] }}</div>
+          <div class="tp-skill">{{ p['skill'] }}</div>
+          {% if p['luck_txt'] and p['luck_dir'] != 0 %}<div class="tp-luck">{{ p['luck_txt'] }}</div>{% endif %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% if not loop.last %}<div class="te-vs">⇄</div>{% endif %}
+    {% endfor %}
+  </div>
+  {% if t['verdict'] %}
+  <div class="te-verdict">
+    <span><b>By results so far:</b> {{ t['verdict']['now'] }} (+{{ t['verdict']['now_gap'] }} value)</span>
+    <span><b>By underlying / regression:</b> {{ t['verdict']['fwd'] or 'roughly even' }}{% if t['verdict']['fwd'] and t['verdict']['fwd'] != t['verdict']['now'] %} <span class="flip">— flips the other way</span>{% endif %}</span>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+<p class="muted" style="font-size:0.8rem; margin-top:1rem">
+  “Now” value is a rough production heuristic; FIP uses 13·HR + 3·(BB+HBP) − 2·K per IP + 3.15.
+  Treat as decision support, not gospel.
+</p>
+{% endif %}
+{% endblock %}

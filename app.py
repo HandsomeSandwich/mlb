@@ -308,6 +308,16 @@ def targets():
     )
 
 
+@app.route("/trades")
+def trades():
+    conn = get_db()
+    yr = selected_season(conn)
+    leagues = Q.league_keys(conn)
+    league_key = request.args.get("league") or (leagues[0] if leagues else None)
+    rows = Q.trade_factors(conn, league_key, yr) if league_key else []
+    return render_template("trades.html", trades=rows, has_league=bool(league_key))
+
+
 @app.route("/weekly")
 def weekly():
     conn = get_db()

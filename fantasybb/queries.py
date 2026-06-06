@@ -493,6 +493,138 @@ def _player_value(conn, lookup, name):
     return None, None
 
 
+FIP_CONST = 3.15
+
+
+def player_factors(conn, pid, season):
+    """Multi-factor outlook for one player: production now, luck, skill, form."""
+    row = conn.execute("SELECT full_name, position FROM players WHERE player_id=?",
+                       (pid,)).fetchone()
+    if not row:
+        return {"name": "?", "kind": None}
+    name = row["full_name"]
+    is_pit = row["position"] == "P"
+
+    if is_pit:
+        ps = conn.execute("SELECT * FROM pitching_season WHERE player_id=? AND season=?",
+                          (pid, season)).fetchone()
+        if not ps or not ps["outs"]:
+            return {"name": name, "kind": "pit", "thin": True}
+        ip = ps["outs"] / 3
+        fip = round((13 * (ps["hr"] or 0) + 3 * ((ps["bb"] or 0) + (ps["hbp"] or 0))
+                     - 2 * (ps["so"] or 0)) / ip + FIP_CONST, 2)
+        era = ps["era"]
+        luck = round(era - fip, 2) if era is not None else None   # + => ERA worse than skill (unlucky)
+        value_now = round((ps["w"] or 0) * 4 + (ps["sv"] or 0) * 3 + (ps["so"] or 0) * 0.4
+                          - ((era or 4) - 4) * 8 - ((ps["whip"] or 1.25) - 1.25) * 30, 1)
+        grade = "A" if fip <= 3.0 else "B" if fip <= 3.75 else "C" if fip <= 4.5 else "D" if fip <= 5.25 else "F"
+        roll = rolling_form(conn, pid, season, "pit")
+        form = _form_arrow(roll[-1]["v"] if roll else None, era, lower_better=True)
+        return {"name": name, "pid": pid, "kind": "pit", "value_now": value_now,
+                "prod": f"{ps['w']}W {ps['sv']}SV · {ps['so']}K · {era} ERA · {ps['whip']} WHIP",
+                "skill": f"FIP {fip} · K/BB {ps['kbb'] or '—'}", "fip": fip,
+                "luck": luck, "luck_dir": _luck_dir(luck, 0.4),
+                "luck_txt": _pit_luck_txt(luck), "grade": grade, "form": form}
+
+    b = conn.execute("SELECT * FROM batting_season WHERE player_id=? AND season=?",
+                     (pid, season)).fetchone()
+    if not b or not b["ab"]:
+        return {"name": name, "kind": "bat", "thin": True}
+    s = conn.execute("SELECT * FROM statcast_batting WHERE player_id=? AND season=?",
+                     (pid, season)).fetchone()
+    xavg = luck = None
+    if s and s["xba"] is not None and b["ab"]:
+        xavg = round(s["xba"] * (b["ab"] - (b["so"] or 0)) / b["ab"], 3)
+        luck = round(xavg - (b["avg"] or 0), 3)
+    value_now = round((b["hr"] or 0) * 3 + (b["r"] or 0) + (b["rbi"] or 0)
+                      + (b["sb"] or 0) * 2 + ((b["ops"] or 0.7) - 0.7) * 120, 1)
+    xw = s["xwoba"] if s else None
+    grade = ("A" if xw and xw >= 0.370 else "B" if xw and xw >= 0.340
+             else "C" if xw and xw >= 0.310 else "D" if xw and xw >= 0.290 else "F") if xw else "—"
+    roll = rolling_form(conn, pid, season, "bat")
+    form = _form_arrow(roll[-1]["v"] if roll else None, b["ops"], lower_better=False)
+    return {"name": name, "pid": pid, "kind": "bat", "value_now": value_now,
+            "prod": f"{b['hr']} HR · {b['r']} R · {b['rbi']} RBI · {b['sb']} SB · {b['avg']} AVG",
+            "skill": (f"xwOBA {xw} · {s['barrel_pct']}% brl · {s['avg_ev']} EV" if s else "no Statcast"),
+            "luck": luck, "luck_dir": _luck_dir(luck, 0.020),
+            "luck_txt": _bat_luck_txt(luck, b["avg"], xavg), "grade": grade, "form": form}
+
+
+def _luck_dir(luck, thresh):
+    if luck is None:
+        return 0
+    return 1 if luck > thresh else (-1 if luck < -thresh else 0)
+
+
+def _bat_luck_txt(luck, avg, xavg):
+    if luck is None:
+        return "—"
+    if luck > 0.020:
+        return f"unlucky: {avg} AVG vs {xavg} expected → due up"
+    if luck < -0.020:
+        return f"lucky: {avg} AVG vs {xavg} expected → due down"
+    return "performing to expectation"
+
+
+def _pit_luck_txt(luck):
+    if luck is None:
+        return "—"
+    if luck > 0.40:
+        return "ERA worse than FIP → due to improve"
+    if luck < -0.40:
+        return "ERA flattering his FIP → due to regress"
+    return "ERA in line with skill"
+
+
+def _form_arrow(recent, season_rate, lower_better):
+    if recent is None or season_rate is None:
+        return "→"
+    better = (recent < season_rate) if lower_better else (recent > season_rate)
+    worse = (recent > season_rate) if lower_better else (recent < season_rate)
+    return "▲" if better else ("▼" if worse else "→")
+
+
+def trade_factors(conn, league_key, season):
+    """Each trade evaluated on multiple factors, side by side."""
+    import datetime as _d
+    txns = behavior.load_txns(conn, league_key)
+    lookup = match.build_lookup(conn)
+    mgr = team_managers(conn, league_key)
+    out = []
+    for t in txns:
+        if t["type"] != "trade":
+            continue
+        sides = {}
+        for mv in t["moves"]:
+            dest = mv["dest_team"]
+            if dest in behavior.POOLS:
+                continue
+            pid = match.match(lookup, mv["player_name"] or "")
+            f = player_factors(conn, pid, season) if pid else {"name": mv["player_name"], "kind": None, "thin": True}
+            sides.setdefault(dest, []).append(f)
+        side_list = []
+        for team, players in sides.items():
+            side_list.append({
+                "team": team, "mgr": mgr.get(team) or team, "players": players,
+                "now": round(sum(p.get("value_now") or 0 for p in players), 1),
+                "luck_tilt": sum(p.get("luck_dir") or 0 for p in players),
+            })
+        verdict = None
+        if len(side_list) == 2:
+            a, b = side_list
+            now_w = a if a["now"] >= b["now"] else b
+            fwd_w = a if a["luck_tilt"] >= b["luck_tilt"] else b
+            verdict = {
+                "now": now_w["mgr"], "now_gap": round(abs(a["now"] - b["now"]), 1),
+                "fwd": fwd_w["mgr"] if a["luck_tilt"] != b["luck_tilt"] else None,
+            }
+        out.append({"ts": t["ts"],
+                    "when": _d.datetime.fromtimestamp(t["ts"]).strftime("%b %d, %Y"),
+                    "sides": side_list, "verdict": verdict})
+    out.sort(key=lambda x: x["ts"], reverse=True)
+    return out
+
+
 def _txn_desc(t):
     adds = [m["player_name"] for m in t["moves"] if m["move_type"] == "add"]
     drops = [m["player_name"] for m in t["moves"] if m["move_type"] == "drop"]
