@@ -6,13 +6,31 @@ Read-only: the app only queries the SQLite DB built by `fantasybb.ingest`.
 """
 from __future__ import annotations
 
+import os
 from urllib.parse import urlencode
 
-from flask import Flask, g, render_template, request
+from flask import Flask, Response, g, render_template, request
 
 from fantasybb import db, queries as Q
 
 app = Flask(__name__)
+
+# Optional password gate. When APP_PASSWORD is set (e.g. before exposing the app
+# through a tunnel), every request requires HTTP basic auth. Left unset for
+# frictionless local use.
+APP_USER = os.environ.get("APP_USER", "admin")
+APP_PASSWORD = os.environ.get("APP_PASSWORD")
+
+
+@app.before_request
+def _require_auth():
+    if not APP_PASSWORD:
+        return  # no password configured -> open (local only)
+    auth = request.authorization
+    if not auth or auth.username != APP_USER or auth.password != APP_PASSWORD:
+        return Response(
+            "Authentication required.", 401,
+            {"WWW-Authenticate": 'Basic realm="DiamondDB"'})
 
 
 def _sort_link(base_args: dict, col: str, new_dir: str) -> str:
@@ -303,4 +321,6 @@ def player(player_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # debug stays OFF unless explicitly asked for -- never expose the debugger
+    # through a tunnel. Use serve.sh (waitress) for the tunnel/production path.
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1", port=5000)

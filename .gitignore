@@ -9,3 +9,7 @@ data/yahoo_oauth.json
 .DS_Store
 .idea/
 data/*.log
+# private evidence doc — names real people, never publish to the repo
+COLLUSION_EVIDENCE.md
+COLLUSION_EVIDENCE.pdf
+THE_STORY.md
