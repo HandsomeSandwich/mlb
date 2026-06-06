@@ -293,6 +293,57 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
     return pairs, hubs
 
 
+def slip_signals(txns, watched, window=120, context=600):
+    """Near-simultaneous moves among `watched` accounts that are NOT league-wide
+    waiver batches.
+
+    For every pair of watched-account moves within `window` seconds of each
+    other, count how many *other* teams were also active within ±`context`
+    seconds. `isolated` (no other team nearby) is the toggling/2-device tell;
+    a crowd of other teams means it was just the scheduled waiver run.
+    """
+    watched = set(watched)
+    all_ev, w_ev = [], []
+    for t in txns:
+        if t["type"] == "trade":
+            continue
+        for tm in t["acting_teams"]:
+            all_ev.append((t["ts"], tm))
+            if tm in watched:
+                w_ev.append((t["ts"], tm, t))
+    all_ev.sort()
+    w_ev.sort(key=lambda x: x[0])
+    all_ts = [e[0] for e in all_ev]
+
+    def moves_str(t):
+        return [f"{m['player_name']} ({m['move_type']})" for m in t["moves"] if m["player_name"]]
+
+    flags, seen = [], set()
+    for i in range(len(w_ev)):
+        ts1, a, t1 = w_ev[i]
+        for j in range(i + 1, len(w_ev)):
+            ts2, b, t2 = w_ev[j]
+            if ts2 - ts1 > window:
+                break
+            if a == b:
+                continue
+            key = (t1["txn_key"] if t1.get("txn_key") else ts1, t2.get("txn_key"), a, b)
+            if key in seen:
+                continue
+            seen.add(key)
+            lo = bisect.bisect_left(all_ts, ts1 - context)
+            hi = bisect.bisect_right(all_ts, ts2 + context)
+            others = {all_ev[k][1] for k in range(lo, hi) if all_ev[k][1] not in watched}
+            flags.append({
+                "ts": ts1, "gap": ts2 - ts1, "a": a, "b": b,
+                "players_a": moves_str(t1), "players_b": moves_str(t2),
+                "others": len(others), "isolated": len(others) == 0,
+            })
+    # isolated first, then tightest gap
+    flags.sort(key=lambda f: (0 if f["isolated"] else 1, f["gap"]))
+    return flags
+
+
 def trade_partner_counts(trade_rows) -> list[dict]:
     pair = defaultdict(int)
     for tr in trade_rows:

@@ -48,6 +48,40 @@
 <p class="muted" style="font-size:0.82rem">No manager nickname appears on two teams, and Yahoo masks account IDs — so there's no direct “one person, two rosters” proof in the data. The signals below are about <em>behavior</em>.</p>
 {% endif %}
 
+{% if cv['slips'] %}
+<h2 class="section-head">🔍 Account-slip detector</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:74ch">
+  Near-simultaneous moves among the linked accounts ({{ cv['slips']['watched']|map('default')|join(', ') }})
+  where <b>no other team was active</b> within ±10 minutes — i.e. <em>not</em> a
+  league-wide waiver batch. Isolated same-second activity across two accounts is
+  the fingerprint of one person on two devices. Watch for new ones after each refresh.
+</p>
+{% if cv['slips']['isolated'] %}
+<div class="slip-list">
+  {% for f in cv['slips']['isolated'] %}
+  <div class="slip {{ 'slip-zero' if f['gap'] == 0 }}">
+    <div class="slip-top"><span class="slip-when">{{ f['when'] }}</span>
+      <span class="slip-gap">{{ 'SAME SECOND' if f['gap'] == 0 else f['gap'] ~ 's apart' }}</span>
+      <span class="slip-iso">no other team active</span></div>
+    <div class="slip-body">
+      <div><b>{{ f['a_mgr'] }}</b>: {{ f['players_a']|join(', ') }}</div>
+      <div><b>{{ f['b_mgr'] }}</b>: {{ f['players_b']|join(', ') }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<p class="muted" style="font-size:0.8rem">
+  Honest caveat: “isolated” means no other manager happened to move nearby — on a
+  quiet morning that’s <em>possible</em> innocently. But same-second add+drop on
+  <b>both</b> accounts, on multiple days, with nobody else around, is the pattern
+  you'd screenshot and bring to the league. Refresh daily (<code>python -m fantasybb.league refresh</code>)
+  and re-check here to catch a fresh one live.
+</p>
+{% else %}
+<p class="muted">No isolated cross-account slips in the current data.</p>
+{% endif %}
+{% endif %}
+
 <h2 class="section-head">Your suspicions</h2>
 {% for f in cv['focus'] %}
 <div class="focus-card">

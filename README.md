@@ -102,6 +102,9 @@ Client**, redirect URI `https://localhost:8000`, **Fantasy Sports → Read**.
   "busiest managers"), trade value flow, tight timing, hub ranking, duplicate-
   manager flag, and focused evidence cards for suspected pairs
   (`?a=Team+One&b=Team+Two`). Patterns for review — *not* proof.
+  Includes an **account-slip detector**: flags near-simultaneous moves among
+  linked accounts that are *isolated* from any league-wide waiver batch (the
+  one-operator/two-device tell). Also `python -m fantasybb.league slips`.
 
 League pages need a one-time-per-refresh pull:
 

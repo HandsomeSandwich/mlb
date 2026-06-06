@@ -562,6 +562,29 @@ def duplicate_managers(conn, league_key):
     return {nick: teams for nick, teams in seen.items() if len(teams) > 1}
 
 
+# Accounts suspected of being run by one operator (the slip detector watches these).
+LINKED_ACCOUNTS = [
+    "Forgive Them Judge",            # Chad (commissioner)
+    "Okamoto Murakami Sushi Express",  # Coop
+    "Sho-guns",                      # Peter
+]
+
+
+def slip_detector(conn, league_key, watched=None):
+    import datetime as _d
+    watched = watched or LINKED_ACCOUNTS
+    txns = behavior.load_txns(conn, league_key)
+    flags = behavior.slip_signals(txns, watched)
+    mgr = team_managers(conn, league_key)
+    for f in flags:
+        f["a_mgr"] = mgr.get(f["a"]) or f["a"]
+        f["b_mgr"] = mgr.get(f["b"]) or f["b"]
+        f["when"] = _d.datetime.fromtimestamp(f["ts"]).strftime("%b %d, %Y %H:%M:%S")
+    isolated = [f for f in flags if f["isolated"]]
+    return {"flags": flags, "isolated": isolated, "watched": watched,
+            "n_isolated": len(isolated)}
+
+
 def collusion_view(conn, league_key, focus=None):
     txns = behavior.load_txns(conn, league_key)
     lookup = match.build_lookup(conn)
@@ -577,7 +600,8 @@ def collusion_view(conn, league_key, focus=None):
     return {"pairs": pairs, "hubs": hubs, "focus": focus_cards,
             "hub_name": SUSPECTED_HUB, "hub_pairs": hub_pairs,
             "managers": team_managers(conn, league_key),
-            "dupes": duplicate_managers(conn, league_key)}
+            "dupes": duplicate_managers(conn, league_key),
+            "slips": slip_detector(conn, league_key)}
 
 
 def db_status(conn):

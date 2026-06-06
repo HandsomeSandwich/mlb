@@ -345,6 +345,18 @@ def main(argv=None) -> int:
         print(f"{r['league']}: {r['teams']} teams, week {r['week']}, "
               f"{r['matchups']} matchups, {r['transactions']} transactions, "
               f"{r['categories']} categories")
+    elif args[:1] == ["slips"]:
+        from . import queries
+        conn = db.connect()
+        lk = args[1] if len(args) > 1 else queries.streaming_league(conn)
+        s = queries.slip_detector(conn, lk)
+        print(f"Account-slip detector — watching: {', '.join(s['watched'])}")
+        print(f"Isolated cross-account slips (no other team active nearby): {s['n_isolated']}")
+        for f in s["isolated"]:
+            gap = "SAME SECOND" if f["gap"] == 0 else f"{f['gap']}s apart"
+            print(f"  • {f['when']}  [{gap}]")
+            print(f"      {f['a_mgr']}: {', '.join(f['players_a'])}")
+            print(f"      {f['b_mgr']}: {', '.join(f['players_b'])}")
     else:
         print(__doc__)
     return 0

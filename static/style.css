@@ -278,6 +278,14 @@ tr.grp-pit td:first-child { border-left: 2px solid var(--accent); }
 .oi-hot { color: #f85149; }
 .oi-warm { color: var(--accent); }
 .oi-cool { color: var(--muted); }
+.slip-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.slip { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 0.6rem 0.9rem; }
+.slip-zero { border-left-color: #f85149; background: #2a1414; }
+.slip-top { display: flex; gap: 0.7rem; align-items: baseline; flex-wrap: wrap; }
+.slip-when { font-weight: 700; font-variant-numeric: tabular-nums; }
+.slip-gap { font-size: 0.7rem; font-weight: 800; color: #f85149; text-transform: uppercase; letter-spacing: 0.5px; }
+.slip-iso { font-size: 0.7rem; color: var(--accent-2); }
+.slip-body { margin-top: 0.35rem; font-size: 0.85rem; }
 .hub-bars { display: flex; flex-direction: column; gap: 0.4rem; max-width: 560px; }
 .hub-row { display: flex; align-items: center; gap: 0.7rem; }
 .hub-name { min-width: 200px; font-size: 0.86rem; font-weight: 600; }
