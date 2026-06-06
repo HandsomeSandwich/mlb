@@ -91,6 +91,52 @@ def timing_similarity(txns, window=1800) -> list[dict]:
     return pairs
 
 
+def permutation_timing(txns, window=900, perms=150):
+    """Significance of tight co-timing via a permutation null.
+
+    The naive rate model fails because transactions cluster in time
+    league-wide (waiver runs, evenings), so it over-predicts coincidences for
+    nobody and under-predicts for everyone. Instead we hold the timestamps
+    fixed and shuffle *which manager* made each move -- preserving the real
+    temporal clustering -- and measure how far each pair's observed
+    coincidences sit above that null. Returns {(a,b) sorted: z}.
+    """
+    import random
+    ev = sorted((t["ts"], tm) for t in txns if t["type"] != "trade"
+                for tm in t["acting_teams"])
+    times = [e[0] for e in ev]
+    labels = [e[1] for e in ev]
+    n = len(ev)
+    npairs = []
+    for i in range(n):
+        hi = bisect.bisect_right(times, times[i] + window, i + 1)
+        npairs.extend((i, j) for j in range(i + 1, hi))
+
+    def co_counts(lab):
+        cc = defaultdict(int)
+        for i, j in npairs:
+            a, b = lab[i], lab[j]
+            if a != b:
+                cc[(a, b) if a < b else (b, a)] += 1
+        return cc
+
+    obs = co_counts(labels)
+    sums, sqs = defaultdict(float), defaultdict(float)
+    rng = random.Random(0)  # seeded -> stable across page loads
+    arr = labels[:]
+    for _ in range(perms):
+        rng.shuffle(arr)
+        for k, v in co_counts(arr).items():
+            sums[k] += v
+            sqs[k] += v * v
+    out = {}
+    for k, o in obs.items():
+        mean = sums[k] / perms
+        var = max(sqs[k] / perms - mean * mean, 0)
+        out[k] = round((o - mean) / (var ** 0.5), 2) if var > 1e-6 else None
+    return out
+
+
 def drop_add_feeding(txns, max_gap_days=7) -> list[dict]:
     """How often team B picks up a player team A just dropped (B != A)."""
     gap = max_gap_days * 86400
@@ -255,6 +301,7 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
     timing = {}
     for p in timing_similarity(txns, window=900):
         timing[tuple(sorted((p["a"], p["b"])))] = p["co"]
+    timing_z = permutation_timing(txns, window=900)  # proper permutation null
 
     teams = set()
     for (d, a) in feed:
@@ -272,6 +319,7 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
             tv = tp_val.get((A, B), {})
             vA, vB = round(tv.get(A, 0), 1), round(tv.get(B, 0), 1)
             co = timing.get((A, B), 0)
+            tz = timing_z.get((A, B))
             if fab + fba + tc + co == 0:
                 continue
             oi_ab, exp_ab = over_index(A, B)
@@ -288,7 +336,7 @@ def collusion_lens(txns, value_fn, feed_gap_days=7):
             pairs.append({
                 "a": A, "b": B, "feed_ab": fab, "feed_ba": fba,
                 "oi_ab": oi_ab, "oi_ba": oi_ba, "max_oi": max_oi,
-                "z_ab": z_ab, "z_ba": z_ba, "sig_z": sig_z,
+                "z_ab": z_ab, "z_ba": z_ba, "sig_z": sig_z, "timing_z": tz,
                 "exp_ab": exp_ab, "exp_ba": exp_ba,
                 "feed_players_ab": feed_players.get((A, B), [])[:5],
                 "feed_players_ba": feed_players.get((B, A), [])[:5],

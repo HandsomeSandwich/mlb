@@ -887,8 +887,10 @@ def collusion_view(conn, league_key, focus=None):
     focus = focus or SUSPECTED_PAIRS
     focus_cards = [{"a": a, "b": b, "pair": find(a, b)} for a, b in focus]
     hub_pairs = [p for p in pairs if SUSPECTED_HUB in (p["a"], p["b"])]
-    sig_pairs = sorted([p for p in pairs if (p.get("sig_z") or 0) >= 2],
-                       key=lambda p: -(p["sig_z"] or 0))
+    def _best_z(p):
+        return max(p.get("sig_z") or 0, p.get("timing_z") or 0)
+    sig_pairs = sorted([p for p in pairs if _best_z(p) >= 2],
+                       key=lambda p: -_best_z(p))
     mgr = team_managers(conn, league_key)
     hub_score = {h["team"]: h["score"] for h in hubs}
     nodes = [{"id": t, "label": (mgr.get(t) or t), "value": hub_score.get(t, 1),

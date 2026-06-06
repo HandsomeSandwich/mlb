@@ -57,20 +57,21 @@
   red flag.
 </p>
 {% if cv['regression'] %}
-<table class="stats" style="max-width:520px">
-  <thead><tr><th class="txt">Pair</th><th class="num">z</th><th class="num">A→B</th><th class="num">B→A</th></tr></thead>
+<table class="stats" style="max-width:600px">
+  <thead><tr><th class="txt">Pair</th><th class="num">Feeding z</th><th class="num">Timing z</th><th class="num">Feed A→B / B→A</th></tr></thead>
   <tbody>
   {% for p in cv['regression'] %}
+    {% set best = [p['sig_z'] or 0, p['timing_z'] or 0]|max %}
     <tr>
-      <td class="txt name">{{ mgr.get(p['a']) or p['a'] }} ↔ {{ mgr.get(p['b']) or p['b'] }}</td>
-      <td class="hl">{{ p['sig_z'] }}{% if p['sig_z'] >= 3 %} 🚩{% endif %}</td>
-      <td>{{ p['feed_ab'] }} (z{{ p['z_ab'] }})</td>
-      <td>{{ p['feed_ba'] }} (z{{ p['z_ba'] }})</td>
+      <td class="txt name">{{ mgr.get(p['a']) or p['a'] }} ↔ {{ mgr.get(p['b']) or p['b'] }}{% if best >= 3 %} 🚩{% endif %}</td>
+      <td class="{{ 'hl' if (p['sig_z'] or 0) >= 2 }}">{{ p['sig_z'] if p['sig_z'] is not none else '—' }}</td>
+      <td class="{{ 'hl' if (p['timing_z'] or 0) >= 2 }}">{{ p['timing_z'] if p['timing_z'] is not none else '—' }}</td>
+      <td class="muted">{{ p['feed_ab'] }} / {{ p['feed_ba'] }} · ≤15m ×{{ p['timing_co'] }}</td>
     </tr>
   {% endfor %}
   </tbody>
 </table>
-<p class="muted" style="font-size:0.8rem">Suggestive, not conclusive — none here reach the z ≥ 3 red-flag bar.</p>
+<p class="muted" style="font-size:0.8rem">Both channels modeled against an activity baseline. Suggestive where z ≥ 2; a 🚩 (z ≥ 3) would be a real flag. The same-second extreme is handled separately by the slip detector above.</p>
 {% else %}
 <p class="muted">✓ <b>Nothing clears the bar.</b> Once activity is controlled for, no pair's feeding
   is statistically unusual (no sizable pair at z ≥ 2). The drop→add “feeding” signal is
