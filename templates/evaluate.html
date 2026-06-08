@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Trade calculator{% endblock %}
+
+{% macro grade(g) %}<span class="grade g-{{ g|lower if g and g != '—' else 'na' }}">{{ g }}</span>{% endmacro %}
+
+{% macro luck_pill(p) %}
+  {%- if p['luck_dir'] == 1 %}<span class="luck up">▲ due up</span>
+  {%- elif p['luck_dir'] == -1 %}<span class="luck down">▼ due down</span>
+  {%- else %}<span class="luck flat">~ on track</span>{% endif -%}
+{% endmacro %}
+
+{# A side's player rows, with a "remove" link that drops just that pid. #}
+{% macro side_players(players, which, give_ids, get_ids, league_key) %}
+  {% for p in players %}
+    {% if which == 'give' %}
+      {% set new_give = give_ids|reject('equalto', p['pid'])|list %}
+      {% set rm = url_for('evaluate', league=league_key, give=new_give, get=get_ids) %}
+    {% else %}
+      {% set new_get = get_ids|reject('equalto', p['pid'])|list %}
+      {% set rm = url_for('evaluate', league=league_key, give=give_ids, get=new_get) %}
+    {% endif %}
+    <div class="te-player">
+      <div class="tp-top">
+        {{ grade(p['grade']) }}
+        {% if p.get('pid') %}<a href="{{ url_for('player', player_id=p['pid']) }}?season={{ season }}">{{ p['name'] }}</a>
+        {% else %}<b>{{ p['name'] }}</b>{% endif %}
+        {% if p['team'] %}<span class="tp-team">{{ p['team'] }}</span>{% endif %}
+        {% if p.get('form') %}<span class="tp-form">{{ p['form'] }}</span>{% endif %}
+        {% if not p.get('thin') %}{{ luck_pill(p) }}{% endif %}
+        {% if p.get('scarcity') %}<span class="scarce {{ 'pos' if p['scarcity'] > 0 else 'neg' }}"
+          title="positional scarcity adjustment">{{ p['pos_bucket'] }} {{ '%+.1f'|format(p['scarcity']) }}</span>{% endif %}
+        <a class="te-rm" href="{{ rm }}" title="remove">✕</a>
+      </div>
+      {% if p.get('thin') %}
+        <div class="tp-prod muted">no stats this season</div>
+      {% else %}
+        <div class="tp-prod">{{ p['prod'] }}</div>
+        <div class="tp-skill">{{ p['skill'] }}
+          <span class="tp-val">rating {{ p['value_now'] }}{% if p['value_adj'] != p['value_now'] %} → <b>{{ p['value_adj'] }}</b> adj{% endif %}</span>
+        </div>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="muted te-empty">— nobody yet —</div>
+  {% endfor %}
+{% endmacro %}
+
+{% block content %}
+<div class="page-head-row">
+  <h1 class="page-title">Trade calculator <span class="muted">— should I make this deal?</span></h1>
+  {% if leagues and leagues|length > 1 %}
+  <label class="year-filter">Year
+    <select onchange="const u=new URL(location); u.searchParams.set('league', this.value); location=u">
+      {% for lg in leagues %}
+        <option value="{{ lg.league_key }}" {{ 'selected' if lg.league_key == league_key }}>{{ lg.season }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+</div>
+
+<p class="muted" style="margin-top:-0.2rem; max-width:80ch">
+  Build a hypothetical deal, then read it two ways: <b>value now</b> (what the box
+  score says today) and <b>adjusted</b> (re-weighted by luck — AVG vs xBA for
+  hitters, ERA vs FIP for pitchers — so a hot streak riding good luck doesn't fool
+  you). When the winner flips between the two, that's the regression edge.
+  <br><span style="font-size:0.92em">Numbers are a <b>position-fair rating</b>: <b>50 = an average regular</b> at that
+  spot, +15 per standard deviation (~80 = elite). Scaled so a hitter and a pitcher
+  compare apples-to-apples.</span>
+</p>
+
+{% if not has_league %}
+  <p class="muted">Sync a league first: <code>python -m fantasybb.league refresh</code></p>
+{% else %}
+
+{% if result and not result['empty'] %}
+{% set v = result['verdict'] %}
+<div class="te-banner {{ v['adj_cls'] }}">
+  <div class="teb-line">
+    <span class="teb-label">Value now</span>
+    <span class="teb-edge">{{ '%+.1f'|format(result['edge_now']) }}</span>
+    <span class="teb-verdict">{{ v['now'] }}</span>
+  </div>
+  <div class="teb-line">
+    <span class="teb-label">Luck-adjusted</span>
+    <span class="teb-edge">{{ '%+.1f'|format(result['edge_adj']) }}</span>
+    <span class="teb-verdict">{{ v['adj'] }}</span>
+  </div>
+  {% if result['flips'] %}
+  <div class="teb-flip">⚠ Regression flips this — today's winner isn't the same once luck normalizes.</div>
+  {% endif %}
+  <div class="teb-foot muted">Edge = (you get) − (you give). Positive favors you.</div>
+</div>
+{% endif %}
+
+<div class="te-sides eval-sides">
+  <div class="te-side eval-col">
+    <div class="te-head"><span class="te-mgr">You give</span>
+      {% if result %}<span class="te-now">rating {{ result['give']['now'] }} · adj {{ result['give']['adj'] }}</span>{% endif %}
+    </div>
+    {{ side_players(result['give']['players'] if result else [], 'give', give_ids, get_ids, league_key) }}
+  </div>
+  <div class="te-vs">⇄</div>
+  <div class="te-side eval-col">
+    <div class="te-head"><span class="te-mgr">You get</span>
+      {% if result %}<span class="te-now">rating {{ result['get']['now'] }} · adj {{ result['get']['adj'] }}</span>{% endif %}
+    </div>
+    {{ side_players(result['get']['players'] if result else [], 'get', give_ids, get_ids, league_key) }}
+  </div>
+</div>
+
+{% if result and result['cats'] %}
+<h2 class="section-head">Category swing <span class="muted">(your league's scoring cats)</span></h2>
+<div class="table-wrap" style="max-width:640px">
+<table class="stats">
+  <thead><tr><th class="txt">Cat</th><th class="num">Give</th><th class="num">Get</th><th class="num">Net</th></tr></thead>
+  <tbody>
+  {% for c in result['cats'] %}
+    <tr>
+      <td class="txt name">{{ c['label'] }}{% if c['lower_better'] %} <span class="muted">↓</span>{% endif %}</td>
+      <td class="num">{{ c['give'] if c['give'] is not none else '—' }}</td>
+      <td class="num">{{ c['get'] if c['get'] is not none else '—' }}</td>
+      <td class="num {{ 'hot-txt' if c['good'] else ('cold-txt' if c['good'] == false else '') }}">
+        {%- if c['net'] is none %}—
+        {%- elif c['is_rate'] %}{{ '%+.3f'|format(c['net']) }}
+        {%- else %}{{ '%+g'|format(c['net']) }}{% endif -%}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem; margin:0.3rem 0 1rem">
+  Counting cats show a true net (get − give). Rate cats (AVG/OPS/ERA/WHIP) show the
+  <em>average</em> of the players each way — a side-by-side read, not a team total.
+  <span class="muted">↓ = lower is better.</span>
+</p>
+{% endif %}
+
+<h2 class="section-head">Add players</h2>
+<form class="te-search" method="get" action="{{ url_for('evaluate') }}">
+  <input type="hidden" name="league" value="{{ league_key }}">
+  {% for g in give_ids %}<input type="hidden" name="give" value="{{ g }}">{% endfor %}
+  {% for g in get_ids %}<input type="hidden" name="get" value="{{ g }}">{% endfor %}
+  <input type="text" name="q" value="{{ q }}" placeholder="Search a player…" autofocus>
+  <button type="submit">Search</button>
+</form>
+
+{% if matches %}
+<table class="stats te-matches">
+  <thead><tr><th class="txt">Player</th><th class="txt">Pos</th><th class="txt">Team</th><th></th></tr></thead>
+  <tbody>
+  {% for m in matches %}
+    <tr>
+      <td class="txt name">{{ m['full_name'] }}</td>
+      <td>{{ m['position'] }}</td>
+      <td>{{ m['team'] or '—' }}</td>
+      <td class="num te-add">
+        <a class="add-give" href="{{ url_for('evaluate', league=league_key, give=give_ids+[m['player_id']], get=get_ids) }}">+ give</a>
+        <a class="add-get" href="{{ url_for('evaluate', league=league_key, give=give_ids, get=get_ids+[m['player_id']]) }}">+ get</a>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% elif q %}
+  <p class="muted">No players matched “{{ q }}”.</p>
+{% endif %}
+
+<p class="muted" style="font-size:0.8rem; margin-top:1rem">
+  Each rating z-scores a player per category against the pool of regulars, then
+  averages those z's{% if result and result['weighted'] %} <b>weighted toward the categories your team is
+  weakest in</b> (so a player who fixes your hole rates higher for you){% endif %} — 50 = average regular,
+  +15 per SD. Every player also carries a <b>positional-scarcity</b> premium (±5):
+  a good C or SS is worth more than an equally-productive 1B because the player
+  you'd replace him with is worse (replacement level at roster depth = teams ×
+  slots). Pitchers split into SP / RP / closer; closer premiums stay small because
+  saves are already in the rating. The <b>adjusted</b> column nudges for luck
+  (AVG vs xBA, ERA vs FIP), capped at ±6.
+  <b>Edge</b> nets each side against an average roster spot (50), so a 2-for-1 isn't
+  unfairly tilted by player count. Decision support, not gospel.
+</p>
+{% endif %}
+{% endblock %}

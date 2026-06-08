@@ -162,6 +162,34 @@ CREATE TABLE IF NOT EXISTS league_teams (
 );
 
 -- Per-team season totals for each scoring category (for league comparison).
+-- One row per (team, manager). A team has >1 row only when it's co-managed.
+-- guid is Yahoo's stable per-account id: the same guid on two teams (even in
+-- different leagues) is the SAME person definitively, regardless of nickname.
+CREATE TABLE IF NOT EXISTS league_managers (
+    league_key      TEXT,
+    team_key        TEXT,
+    manager_id      TEXT,
+    guid            TEXT,
+    nickname        TEXT,
+    is_commissioner INTEGER,
+    is_comanager    INTEGER,
+    PRIMARY KEY (league_key, team_key, manager_id)
+);
+
+-- Append-only log of every team name and manager nickname we've observed, so a
+-- rename is visible ('now X, formerly Y'). One row per distinct name per entity;
+-- first_seen/last_seen bracket when that name was in use. entity_id is a team_key
+-- (kind='team') or a manager guid (kind='manager').
+CREATE TABLE IF NOT EXISTS name_history (
+    league_key TEXT,
+    kind       TEXT,
+    entity_id  TEXT,
+    name       TEXT,
+    first_seen TEXT,
+    last_seen  TEXT,
+    PRIMARY KEY (league_key, kind, entity_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS team_category (
     league_key TEXT,
     team_key   TEXT,
@@ -236,6 +264,21 @@ CREATE TABLE IF NOT EXISTS probable_starts (
     PRIMARY KEY (game_date, player_id)
 );
 
+-- Full-season MLB schedule, one row per team per game (future + played).
+-- Powers the dashboard's "games this week" / save-chance counts. Unlike `games`
+-- (which only holds played games with boxscores), this stores upcoming games too.
+CREATE TABLE IF NOT EXISTS team_schedule (
+    game_pk   INTEGER,
+    season    INTEGER,
+    game_date TEXT,
+    team_id   INTEGER,    -- the team this row is "for"
+    opp_id    INTEGER,
+    is_home   INTEGER,
+    status    TEXT,        -- abstractGameState: Preview / Live / Final
+    PRIMARY KEY (game_pk, team_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ts_team ON team_schedule(team_id, game_date);
+
 -- Availability of players in a Yahoo league (free agent / waiver / owned).
 CREATE TABLE IF NOT EXISTS availability (
     league_key TEXT,
@@ -259,6 +302,7 @@ CREATE TABLE IF NOT EXISTS fantasy_roster (
     positions  TEXT,
     yahoo_team TEXT,
     status     TEXT,           -- IL / DTD etc.
+    is_mine    INTEGER DEFAULT 1,  -- 1 = my team, 0 = a synced opponent
     PRIMARY KEY (team_key, yahoo_id)
 );
 
@@ -272,6 +316,7 @@ CREATE INDEX IF NOT EXISTS idx_bg_player ON batting_games(player_id);
 CREATE INDEX IF NOT EXISTS idx_bg_date   ON batting_games(game_date);
 CREATE INDEX IF NOT EXISTS idx_pg_player ON pitching_games(player_id);
 CREATE INDEX IF NOT EXISTS idx_pg_date   ON pitching_games(game_date);
+CREATE INDEX IF NOT EXISTS idx_lmgr_guid ON league_managers(guid);
 """
 
 
@@ -322,4 +367,8 @@ def init_db(db_path: str = DB_PATH) -> None:
         _migrate_season_pk(conn)
         conn.executescript(SCHEMA)
         _ensure_column(conn, "league_teams", "manager", "TEXT")
+        _ensure_column(conn, "fantasy_roster", "is_mine", "INTEGER DEFAULT 1")
+        _ensure_column(conn, "transaction_moves", "team_abbr", "TEXT")
+        _ensure_column(conn, "transaction_moves", "source_team_key", "TEXT")
+        _ensure_column(conn, "transaction_moves", "dest_team_key", "TEXT")
     conn.close()

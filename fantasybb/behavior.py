@@ -16,16 +16,29 @@ POOLS = {None, "", "waivers", "freeagents", "commish"}
 
 
 def load_txns(conn, league_key) -> list[dict]:
+    # team_key -> current team name. A team_key is stable across renames, so we
+    # rewrite every move's actor to the team's CURRENT name. Without this, a
+    # mid-season rename would split one team into two actors (old name in old
+    # transactions, new name in recent ones) and dilute every coordination
+    # signal. Moves with no key (free-agent/waiver pools, or rows synced before
+    # keys were captured) keep their stored name.
+    key2name = {r["team_key"]: r["name"] for r in conn.execute(
+        "SELECT team_key, name FROM league_teams WHERE league_key=?", (league_key,))}
     txns = {}
     for t in conn.execute(
         "SELECT txn_key, type, status, ts FROM transactions WHERE league_key=? "
         "ORDER BY ts", (league_key,)):
         txns[t["txn_key"]] = {"ts": t["ts"], "type": t["type"], "moves": []}
     for m in conn.execute(
-        "SELECT txn_key, player_name, player_id, move_type, source_team, dest_team "
-        "FROM transaction_moves"):
+        "SELECT txn_key, player_name, player_id, team_abbr, move_type, source_team, "
+        "dest_team, source_team_key, dest_team_key FROM transaction_moves"):
         if m["txn_key"] in txns:
-            txns[m["txn_key"]]["moves"].append(dict(m))
+            mv = dict(m)
+            if mv.get("source_team_key") in key2name:
+                mv["source_team"] = key2name[mv["source_team_key"]]
+            if mv.get("dest_team_key") in key2name:
+                mv["dest_team"] = key2name[mv["dest_team_key"]]
+            txns[m["txn_key"]]["moves"].append(mv)
     out = []
     for t in txns.values():
         teams = set()

@@ -40,6 +40,7 @@
   {{ card('Wins', win_leaders) }}
   {{ card('Saves', sv_leaders) }}
   {{ card('Strikeouts', k_leaders) }}
-  {{ card('ERA (150+ IP)', era_leaders, 'era') }}
+  {{ card('ERA (%d+ IP)'|format(ip_floor), era_leaders, 'era') }}
+  {{ card('WHIP (%d+ IP)'|format(ip_floor), whip_leaders, 'era') }}
 </div>
 {% endblock %}

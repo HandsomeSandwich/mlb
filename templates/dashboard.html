@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}This Week — Dashboard{% endblock %}
+
+{% block content %}
+<div class="dash-top">
+  <h1 class="page-title">This Week</h1>
+  {% if leagues and leagues|length > 1 %}
+  <select class="dash-select" title="League"
+          onchange="const u=new URL(location); u.searchParams.set('league', this.value); location=u">
+    {% for lg in leagues %}
+      <option value="{{ lg.league_key }}" {{ 'selected' if lg.league_key == league_key }}>
+        {{ lg.name }}{{ '' if lg.has_roster else ' (no roster)' }}
+      </option>
+    {% endfor %}
+  </select>
+  {% endif %}
+</div>
+
+{% if not d or not d.has_roster %}
+  <p class="empty">
+    No synced roster for this league yet.<br>
+    Sync one with <code>python -m fantasybb.yahoo sync &lt;team_key&gt;</code>, then refresh
+    schedule + waivers with <code>python -m fantasybb.streaming refresh</code>.
+  </p>
+{% else %}
+
+{% set m = d.matchup %}
+<section class="dash-hero">
+  {% if d.week %}<span class="dh-week">Week {{ d.week.week }}</span>{% endif %}
+  <span class="dh-vs">vs <b>{{ d.week.opp_name if d.week else (m.opp_name if m else '?') }}</b></span>
+  {% if d.days_left is defined %}
+    <span class="dh-days">{{ d.days_left }} day{{ 's' if d.days_left != 1 }} left</span>
+  {% endif %}
+  {% if m %}
+    <span class="dh-score {{ 'win' if m.won > m.lost else 'loss' if m.lost > m.won else '' }}">
+      {{ m.won }}&ndash;{{ m.lost }}{% if m.tied %}&ndash;{{ m.tied }}{% endif %}
+    </span>
+  {% endif %}
+</section>
+
+<div class="metric-strip">
+  <div class="metric"><b>{{ d.totals.confirmed_left }}</b><span>Confirmed starts left</span></div>
+  <div class="metric"><b>~{{ d.totals.sp_starts_left }}</b><span>Est. SP starts left</span></div>
+  <div class="metric"><b>{{ d.totals.save_ceiling }}</b><span>Save chances (ceiling)</span></div>
+  <div class="metric"><b>{{ d.totals.hitter_games_left }}</b><span>Hitter games left</span></div>
+</div>
+
+<h2 class="section-head">Do this</h2>
+{% if d.actions %}
+<div class="signal-list">
+  {% for a in d.actions %}
+    <div class="signal sig-{{ a.urgency }}">
+      <span class="sig-kind">{{ a.kind }}</span>
+      <span class="sig-text">{{ a.text }}</span>
+    </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty">Lineup looks set — nothing urgent right now. 🎉</p>
+{% endif %}
+
+{% if m %}
+<h2 class="section-head">Matchup categories</h2>
+<div class="cat-pills">
+  {% for r in m.rows %}
+    <div class="cat-pill {{ 'won' if r.win == 1 else 'lost' if r.win == 0 else 'tie' }}">
+      <span class="cp-cat">{{ r.label }}{% if r.is_pitching %}<i>P</i>{% endif %}</span>
+      <span class="cp-val">{{ r.my_value if r.my_value is not none else '–' }}
+        <i>vs</i> {{ r.opp_value if r.opp_value is not none else '–' }}</span>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if d.next_week %}
+{% set nw = d.next_week %}
+<h2 class="section-head">Next week <span class="muted">— you vs your opponent</span></h2>
+<div class="next-week">
+  <div class="nw-head">
+    <span class="nw-wk">Week {{ nw.week }}</span>
+    <span class="nw-vs">vs <b>{{ nw.opp_name }}</b></span>
+    <span class="nw-dates">{{ nw.start[5:] }} – {{ nw.end[5:] }}</span>
+  </div>
+  {% if nw.opp %}
+  <div class="nw-compare">
+    <div class="nwc-head"><span></span><span>You</span><span>{{ nw.opp_name|truncate(14, true, '…') }}</span></div>
+    {% for cat, mine, theirs, pre in [
+        ('SP starts', nw.sp_starts, nw.opp.sp_starts, '~'),
+        ('Save chances', nw.save_ceiling, nw.opp.save_ceiling, ''),
+        ('Hitter games', nw.hitter_games, nw.opp.hitter_games, '')] %}
+    <div class="nwc-row">
+      <span class="nwc-cat">{{ cat }}</span>
+      <span class="nwc-this nwc-{{ 'up' if mine > theirs else 'down' if mine < theirs else 'flat' }}">
+        {{ pre }}{{ mine }}
+        {%- if mine != theirs %} <i>{{ '+' if mine > theirs }}{{ mine - theirs }}</i>{% endif %}
+      </span>
+      <span class="nwc-next">{{ pre }}{{ theirs }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="nw-nums">
+    <div><b>~{{ nw.sp_starts }}</b><span>SP starts</span></div>
+    <div><b>{{ nw.save_ceiling }}</b><span>Save chances</span></div>
+    <div><b>{{ nw.hitter_games }}</b><span>Hitter games</span></div>
+    <div class="nw-noopp">Opponent roster not synced —<br>run <code>yahoo sync-league</code></div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<h2 class="section-head">Pitching this week</h2>
+<div class="pw-list">
+  {% for p in d.pitchers %}
+    <div class="pw-row{{ ' pw-il' if p.on_il }}{{ ' pw-bench' if (not p.active and not p.on_il) }}">
+      <div class="pw-main">
+        <span class="pw-name">
+          {% if p.player_id %}<a href="{{ url_for('player', player_id=p.player_id) }}">{{ p.name }}</a>
+          {% else %}{{ p.name }}{% endif %}
+        </span>
+        <span class="pw-role">{{ p.role }}</span>
+        <span class="pw-team">{{ p.team }}</span>
+        {% if p.on_il %}<span class="il-tag">{{ p.il_status or 'IL' }}</span>
+        {% elif not p.active %}<span class="pw-tag">BN</span>{% endif %}
+      </div>
+      <div class="pw-games">{{ p.games_left }}<span>/ {{ p.games_total }} gm</span></div>
+      <div class="pw-verdict">
+        {% if p.confirmed %}
+          <span class="verdict v-start">▶ {{ p.confirmed[0].date[5:] }}
+            {{ 'vs' if p.confirmed[0].home else '@' }} {{ p.confirmed[0].opp }}
+            {%- if p.confirmed|length > 1 %} +{{ p.confirmed|length - 1 }}{% endif %}</span>
+        {% elif p.is_closer %}
+          <span class="verdict v-risk">{{ p.save_left }} SV chances</span>
+        {% elif p.role in ('SP', 'SP/RP') and p.est_starts_left %}
+          <span class="verdict v-na">~{{ p.est_starts_left }} start{{ 's' if p.est_starts_left != 1 }}</span>
+        {% elif p.role in ('SP', 'SP/RP') %}
+          <span class="verdict v-sit">no start left</span>
+        {% else %}
+          <span class="verdict v-na">reliever</span>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+<h2 class="section-head">Hitter games this week <span class="muted">(fewest first — who runs dry)</span></h2>
+<div class="hg-grid">
+  {% for h in d.hitters %}
+    <div class="hg{{ ' hg-off' if h.on_il or not h.active }}">
+      <span class="hg-left {{ 'hg-low' if (h.games_left <= 2 and h.active and not h.on_il)
+                              else 'hg-ok' }}">{{ '–' if h.on_il else h.games_left }}</span>
+      <span class="hg-name">
+        {% if h.player_id %}<a href="{{ url_for('player', player_id=h.player_id) }}">{{ h.name }}</a>
+        {% else %}{{ h.name }}{% endif %}
+      </span>
+      <span class="hg-team">{{ h.team }}{% if h.on_il %} · {{ h.il_status or 'IL' }}
+        {%- elif not h.active %} · BN{% endif %}</span>
+    </div>
+  {% endfor %}
+</div>
+
+<h2 class="section-head">Available to pick up</h2>
+<div class="two-col">
+  <div>
+    <h3 class="pick-h">Starters available (next 2 days)</h3>
+    {% if d.streamers %}
+      {% for s in d.streamers %}
+        <div class="stream-card">
+          <div class="sc-main">
+            <a href="{{ url_for('player', player_id=s.player_id) }}">{{ s.name }}</a>
+            <span class="sc-matchup">{{ s.game_date[5:] }} {{ 'vs' if s.is_home else '@' }} {{ s.opp }}</span>
+            {% if s.era is not none %}
+              <div class="sc-stat">ERA {{ '%.2f'|format(s.era) }} · WHIP {{ '%.2f'|format(s.whip) }} · {{ s.so }} K</div>
+            {% endif %}
+          </div>
+          {% if s.tier %}
+            <span class="tier tier-{{ s.tier_rank if s.tier_rank is not none else 'na' }}">{{ s.tier }}</span>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% else %}<p class="empty">No available probables loaded — run a streaming refresh.</p>{% endif %}
+  </div>
+  <div>
+    <h3 class="pick-h">Closers available</h3>
+    {% if d.closers %}
+      {% for c in d.closers %}
+        <div class="stream-card">
+          <div class="sc-main">
+            <a href="{{ url_for('player', player_id=c.player_id) }}">{{ c.name }}</a>
+            <div class="sc-stat">ERA {{ '%.2f'|format(c.era) if c.era is not none else '–' }} ·
+              WHIP {{ '%.2f'|format(c.whip) if c.whip is not none else '–' }} · {{ c.so }} K</div>
+          </div>
+          <span class="verdict v-start">{{ c.sv }} SV</span>
+        </div>
+      {% endfor %}
+    {% else %}<p class="empty">No available closers loaded.</p>{% endif %}
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}

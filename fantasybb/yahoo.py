@@ -216,17 +216,29 @@ def get_roster(team_key: str, cfg: dict | None = None) -> list[dict]:
 # --------------------------------------------------------------------------- #
 # match Yahoo players to our database + persist the roster
 # --------------------------------------------------------------------------- #
-def sync_roster(team_key: str, cfg: dict | None = None) -> tuple[str, int, int, list]:
+def sync_roster(team_key: str, cfg: dict | None = None, *, is_mine: int | None = None,
+                team_name: str | None = None, season: int | None = None
+                ) -> tuple[str, int, int, list]:
     """Fetch a roster, match each player to the DB, and store it.
+
+    `is_mine`/`team_name`/`season` may be passed in when syncing an opponent
+    (whose metadata isn't in the logged-in user's `get_teams`); otherwise they
+    are derived from the user's own teams.
 
     Returns (team_name, total, matched, unmatched_names).
     """
     from . import db, match  # local import avoids a circular dependency
 
     cfg = cfg or load_cfg()
-    meta = {t["team_key"]: t for t in get_teams(cfg)}.get(team_key, {})
-    team_name = meta.get("name") or team_key
-    season = int(meta.get("season") or 0)
+    if is_mine is None or team_name is None or season is None:
+        my = {t["team_key"]: t for t in get_teams(cfg)}
+        meta = my.get(team_key, {})
+        if is_mine is None:
+            is_mine = 1 if team_key in my else 0
+        if team_name is None:
+            team_name = meta.get("name") or team_key
+        if season is None:
+            season = int(meta.get("season") or 0)
     roster = get_roster(team_key, cfg)
 
     conn = db.connect()
@@ -238,16 +250,46 @@ def sync_roster(team_key: str, cfg: dict | None = None) -> tuple[str, int, int, 
         if pid is None:
             unmatched.append(pl["name"])
         rows.append((team_key, team_name, season, i, pl["yahoo_id"], pl["name"], pid,
-                     pl["selected_position"], pl["positions"], pl["team_abbr"], pl["status"]))
+                     pl["selected_position"], pl["positions"], pl["team_abbr"], pl["status"],
+                     is_mine))
 
     with conn:
         conn.execute("DELETE FROM fantasy_roster WHERE team_key=?", (team_key,))
         conn.executemany(
             "INSERT INTO fantasy_roster (team_key, team_name, season, slot, yahoo_id, "
-            "yahoo_name, player_id, selected_position, positions, yahoo_team, status) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+            "yahoo_name, player_id, selected_position, positions, yahoo_team, status, is_mine) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     conn.close()
     return team_name, len(rows), len(rows) - len(unmatched), unmatched
+
+
+def sync_league_rosters(league_key: str, cfg: dict | None = None) -> list[tuple]:
+    """Sync every team's roster in a league (mine + opponents), tagging each
+    with is_mine, so the dashboard can project opponents' weeks. Read-only: it
+    only fetches rosters from the user's own authorized account."""
+    from . import db
+
+    cfg = cfg or load_cfg()
+    mine = {t["team_key"]: t for t in get_teams(cfg)}
+    season = None
+    for t in mine.values():
+        if t["team_key"].startswith(league_key):
+            season = int(t.get("season") or 0)
+            break
+
+    conn = db.connect()
+    teams = conn.execute(
+        "SELECT team_key, name FROM league_teams WHERE league_key=?", (league_key,)).fetchall()
+    conn.close()
+
+    results = []
+    for tk, name in teams:
+        try:
+            results.append(sync_roster(
+                tk, cfg, is_mine=1 if tk in mine else 0, team_name=name, season=season))
+        except SystemExit as e:  # one bad team shouldn't abort the rest
+            results.append((name or tk, 0, 0, [f"ERROR: {e}"]))
+    return results
 
 
 # --------------------------------------------------------------------------- #
@@ -285,8 +327,9 @@ def _flatten(node: Any) -> dict:
 # --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Yahoo Fantasy OAuth + roster")
-    ap.add_argument("command", choices=["url", "code", "teams", "roster", "sync"])
-    ap.add_argument("arg", nargs="?", help="auth code (for `code`) or team_key (for `roster`/`sync`)")
+    ap.add_argument("command", choices=["url", "code", "teams", "roster", "sync", "sync-league"])
+    ap.add_argument("arg", nargs="?", help="auth code (`code`), team_key (`roster`/`sync`), "
+                                           "or league_key (`sync-league`)")
     args = ap.parse_args(argv)
     cfg = load_cfg()
 
@@ -323,6 +366,12 @@ def main(argv=None) -> int:
         print(f"synced '{name}': {matched}/{total} players matched to the DB")
         if unmatched:
             print("  unmatched:", ", ".join(unmatched))
+
+    elif args.command == "sync-league":
+        if not args.arg:
+            raise SystemExit("usage: python -m fantasybb.yahoo sync-league <league_key>")
+        for name, total, matched, unmatched in sync_league_rosters(args.arg, cfg):
+            print(f"  {name}: {matched}/{total} matched")
 
     return 0
 

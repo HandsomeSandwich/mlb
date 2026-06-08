@@ -40,12 +40,45 @@
   questions to ask.
 </div>
 
-{% if cv['dupes'] %}
+{# ---- Account identity: now backed by Yahoo's stable per-account guid ---- #}
+{% if cv['shared'] and cv['shared']['same_league'] %}
+<div class="disclaimer" style="background:#3a1a1a;border-color:#b62324;color:#f8c7c4">
+  🚩 <b>Same Yahoo account on multiple teams in this league</b> (definitive — matched by account ID, not nickname):
+  {% for s in cv['shared']['same_league'] %}<b>{{ s['nickname'] }}</b> → {{ s['teams']|map(attribute='team')|join(', ') }}{% if not loop.last %}; {% endif %}{% endfor %}
+</div>
+{% elif cv['dupes'] %}
 <div class="disclaimer" style="background:#3a1a1a;border-color:#b62324;color:#f8c7c4">
   🚩 Same manager nickname on multiple teams: {% for nick, teams in cv['dupes'].items() %}<b>{{ nick }}</b> → {{ teams|join(', ') }}{% if not loop.last %}; {% endif %}{% endfor %}
 </div>
+{% elif cv['shared'] and cv['shared']['has_guids'] %}
+<p class="muted" style="font-size:0.82rem">✓ Checked Yahoo account IDs directly: <b>no single account controls two teams</b> in this league. The signals below are about <em>behavior</em>.</p>
+{% elif cv['shared'] and cv['shared']['masked'] %}
+<p class="muted" style="font-size:0.82rem">🔒 Managers in this league have <b>private Yahoo profiles</b>, so Yahoo masks their account IDs (<code>--hidden--</code>) — no definitive same-account check is possible. Falling back to nickname matching and the <em>behavioral</em> signals below.</p>
 {% else %}
-<p class="muted" style="font-size:0.82rem">No manager nickname appears on two teams, and Yahoo masks account IDs — so there's no direct “one person, two rosters” proof in the data. The signals below are about <em>behavior</em>.</p>
+<p class="muted" style="font-size:0.82rem">Account IDs not captured yet — re-sync the league (<code>python -m fantasybb.league refresh</code>) to enable definitive same-account detection. The signals below are about <em>behavior</em>.</p>
+{% endif %}
+
+{% if cv['comanagers'] %}
+<div class="disclaimer" style="background:#2a2230;border-color:#4a3a55;color:#d8c7e6">
+  👥 <b>Co-managed teams</b> (more than one person on the roster):
+  {% for c in cv['comanagers'] %}<b>{{ c['team'] }}</b> — {{ c['managers']|map(attribute='nickname')|join(' & ') }}{% if not loop.last %}; {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+{% if cv['renames'] and cv['renames']['changes'] %}
+<div class="disclaimer" style="background:#1c2230;border-color:#2a3140;color:#c9d1d9">
+  📛 <b>Name changes seen</b> (identity is tracked by stable ID, so a rename doesn't hide anyone):
+  {% for ch in cv['renames']['changes'] %}
+    {% if ch['kind'] == 'team' %}<b>{{ ch['current'] }}</b>{% else %}manager <b>{{ ch['current'] }}</b>{% if ch['team'] %} ({{ ch['team'] }}){% endif %}{% endif %}
+    — formerly {{ ch['former']|join(', ') }}{% if not loop.last %}; {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if cv['shared'] and cv['shared']['cross_league'] %}
+<p class="muted" style="font-size:0.8rem">Cross-league (same person, separate leagues — context only):
+  {% for s in cv['shared']['cross_league'] %}<b>{{ s['nickname'] }}</b> ({{ s['teams']|length }} leagues){% if not loop.last %}; {% endif %}{% endfor %}
+</p>
 {% endif %}
 
 <h2 class="section-head">📊 Noise-adjusted coordination (regression)</h2>
@@ -208,6 +241,50 @@
     </div>
   {% endfor %}
 </div>
+
+{# ---- Did opponents tank their pitching the week they faced Chad? ---- #}
+{% if vscom and vscom['has_focus'] %}
+<h2 class="section-head">Pitching effort vs {{ vscom['focus_mgr'] or vscom['focus_team'] }}
+  <span class="muted">(scored cats + innings: their average the week they played {{ vscom['focus_mgr'] or 'the commissioner' }} vs every other week)</span></h2>
+<p class="muted" style="font-size:0.82rem">
+  Each cell is <b>vs-Chad average → other-weeks average (Δ)</b>. A negative Δ across W / K / QS / IP means a team
+  pitched <em>less</em> than its norm against {{ vscom['focus_mgr'] or 'Chad' }} — the "didn't contest the matchup" signal.
+  Read with the sample size in mind: <b>n</b> = how many times they actually faced {{ vscom['focus_mgr'] or 'Chad' }}.
+  Rows sorted by strikeout drop (biggest tank first).
+</p>
+<div class="table-wrap">
+<table class="grid vscom">
+  <thead><tr>
+    <th class="txt">Manager</th><th>n</th>
+    {% for cat in vscom['cats'] %}<th>{{ cat }} <span class="muted">vs→oth (Δ)</span></th>{% endfor %}
+  </tr></thead>
+  <tbody>
+  {% for r in vscom['rows'] %}
+    <tr class="{{ 'mine-row' if r['is_mine'] }}">
+      <td class="txt">{{ r['mgr'] or r['team'] }}{% if r['is_mine'] %} <span class="who-team">you</span>{% endif %}</td>
+      <td>{{ r['n_vs'] }}</td>
+      {% for cat in vscom['cats'] %}
+        {% set c = r['cells'][cat] %}
+        <td>
+          {%- if c['vs'] is none %}—
+          {%- else -%}
+            {{ '%.1f'|format(c['vs']) }} → {{ '%.1f'|format(c['oth']) if c['oth'] is not none else '—' }}
+            {% if c['diff'] is not none %}
+              <span class="oi {{ 'oi-cool' if c['diff'] < -0.5 else ('oi-warm' if c['diff'] > 0.5 else '') }}">{{ '%+.1f'|format(c['diff']) }}</span>
+            {% endif %}
+          {%- endif -%}
+        </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem">
+  ⚠️ Single-matchup rows (n=1) are one-game noise, not a trend — weigh the n≥3 rows far more heavily.
+  IP is shown as true innings (Yahoo's thirds notation converted).
+</p>
+{% endif %}
 {% endif %}
 {% endblock %}
 

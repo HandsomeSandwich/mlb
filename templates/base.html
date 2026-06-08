@@ -11,10 +11,12 @@
 <header class="topbar">
   <a class="brand" href="{{ url_for('index') }}">⚾ Diamond<span>DB</span></a>
   <nav>
-    {% set navitems = [('index','Home'), ('hitters','Hitters'), ('pitchers','Pitchers'),
-                       ('trends','Hot/Cold'), ('streaming','Streaming'), ('weekly','Weekly'),
-                       ('myteam','My Team'), ('targets','Targets'), ('matchup','League'),
-                       ('transactions','Transactions'), ('collusion','Collusion')] %}
+    {% set navitems = [('index','Dashboard'), ('leaders','Leaders'), ('hitters','Hitters'),
+                       ('pitchers','Pitchers'), ('trends','Hot/Cold'), ('streaming','Streaming'),
+                       ('weekly','Weekly'), ('myteam','My Team'), ('targets','Targets'),
+                       ('evaluate','Trade Calc'),
+                       ('matchup','League'), ('transactions','Transactions'),
+                       ('handoffs','Handoffs'), ('collusion','Collusion')] %}
     {% for endpoint, label in navitems %}
       <a class="{{ 'active' if request.endpoint == endpoint }}" href="{{ url_for(endpoint) }}">{{ label }}</a>
     {% endfor %}

@@ -10,13 +10,26 @@
 {% endmacro %}
 
 {% block content %}
-<h1 class="page-title">Trade analysis <span class="muted">— multi-factor</span></h1>
-<p class="muted" style="margin-top:-0.4rem; max-width:80ch">
+<div class="page-head-row">
+  <h1 class="page-title">Trade analysis <span class="muted">— multi-factor</span></h1>
+  {% if leagues and leagues|length > 1 %}
+  <label class="year-filter">Year
+    <select onchange="const u=new URL(location); u.searchParams.set('league', this.value); location=u">
+      {% for lg in leagues %}
+        <option value="{{ lg.league_key }}" {{ 'selected' if lg.league_key == league_key }}>{{ lg.season }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+</div>
+<p class="muted" style="margin-top:-0.2rem; max-width:80ch">
   Each trade rated on what the box score shows <b>now</b> (production value) <em>and</em>
   what's under the hood — <b>luck</b> (hitter: AVG vs expected; pitcher: <b>ERA vs FIP</b>)
   and <b>skill</b> (xwOBA/barrels, FIP/K-BB). The gap between “who's winning now” and
   “who got the better underlying” is the edge the buyer may have seen.
   <b>Grade</b> = underlying quality (A best). <b>▲/▼</b> = recent form.
+  <br><span style="font-size:0.92em"><b>now</b> / <b>since</b> are a <b>position-fair rating</b> (50 = average regular,
+  +15 per SD), so a pitcher and a hitter compare apples-to-apples.</span>
 </p>
 
 {% if board %}
@@ -60,11 +73,14 @@
       </div>
       {% for p in s['players'] %}
         {% if p.get('thin') %}
-          <div class="te-player"><b>{{ p['name'] }}</b> <span class="muted">— no stats</span></div>
+          <div class="te-player"><b>{{ p['name'] }}</b>{% if p['team'] %}
+            <span class="tp-team">{{ p['team'] }}</span>{% endif %}
+            <span class="muted">— no stats</span></div>
         {% else %}
         <div class="te-player">
           <div class="tp-top">{{ grade(p['grade']) }}
             <a href="{{ url_for('player', player_id=p['pid']) }}?season={{ season }}">{{ p['name'] }}</a>
+            {% if p['team'] %}<span class="tp-team">{{ p['team'] }}</span>{% endif %}
             <span class="tp-form">{{ p['form'] }}</span>{{ luck_pill(p) }}
           </div>
           <div class="tp-prod">{{ p['prod'] }}</div>

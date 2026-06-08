@@ -7,6 +7,7 @@ Powers the Matchup/League-comparison and Transactions-analysis pages.
 """
 from __future__ import annotations
 
+import datetime
 import sys
 
 from . import db, match
@@ -88,26 +89,43 @@ def fetch_settings(lk, cfg):
     return meta, cats
 
 
-def fetch_managers(lk, cfg) -> dict:
-    """{team_key: 'Nickname' (or 'A / B' for co-managers)}."""
+def fetch_managers(lk, cfg):
+    """Returns (names, records).
+
+    names:   {team_key: 'Nickname' (or 'A / B' for co-managers)} — for the
+             league_teams.manager display string (backward compatible).
+    records: one dict per (team, manager) with the stable Yahoo guid, manager_id,
+             is_commissioner, and is_comanager flags — even when the nickname is
+             '--hidden--' (the guid survives, so hidden co-managers stay visible).
+    """
     parts = _league_parts(api_get(f"league/{lk}/teams;out=managers", cfg))
     teams = _find(parts, "teams")
-    out = {}
+    names, records = {}, []
     for t in _coll(teams or {}):
         node = t["team"]
         meta = _team_meta(node)
+        team_key = meta.get("team_key")
         mgrs = meta.get("managers")
         if not mgrs:
             for part in node:
                 if isinstance(part, dict) and "managers" in part:
                     mgrs = part["managers"]
-        names = []
+        nicks = []
         for mg in _coll(mgrs or {}):
-            nick = mg.get("manager", {}).get("nickname")
+            m = mg.get("manager", {})
+            nick = m.get("nickname")
             if nick and nick != "--hidden--":
-                names.append(nick)
-        out[meta.get("team_key")] = " / ".join(names) if names else None
-    return out
+                nicks.append(nick)
+            records.append({
+                "team_key": team_key,
+                "manager_id": str(m.get("manager_id") or ""),
+                "guid": m.get("guid"),
+                "nickname": nick,
+                "is_commissioner": 1 if str(m.get("is_commissioner") or "") == "1" else 0,
+                "is_comanager": 1 if str(m.get("is_comanager") or "") == "1" else 0,
+            })
+        names[team_key] = " / ".join(nicks) if nicks else None
+    return names, records
 
 
 def fetch_standings(lk, cfg, my_keys):
@@ -214,9 +232,14 @@ def _accumulate_txn(t, out, seen):
         td = td or {}
         moves.append({
             "player_name": name,
+            "team_abbr": pm.get("editorial_team_abbr"),  # MLB team, to disambiguate shared names
             "move_type": td.get("type"),
             "source_team": td.get("source_team_name") or td.get("source_type"),
             "dest_team": td.get("destination_team_name") or td.get("destination_type"),
+            # Stable team identity: a team_key never changes when a team is
+            # renamed, so we can fold a renamed team's history back together.
+            "source_team_key": td.get("source_team_key"),
+            "dest_team_key": td.get("destination_team_key"),
         })
     out.append({
         "txn_key": key, "type": meta.get("type"),
@@ -229,8 +252,76 @@ def _accumulate_txn(t, out, seen):
 # refresh / store
 # --------------------------------------------------------------------------- #
 def default_league_key(conn):
-    row = conn.execute("SELECT team_key FROM fantasy_roster LIMIT 1").fetchone()
+    row = conn.execute("SELECT team_key FROM fantasy_roster WHERE is_mine=1 LIMIT 1").fetchone()
     return row[0].rsplit(".t.", 1)[0] if row else None
+
+
+def _record_name_history(conn, league_key, observations):
+    """Upsert observed (kind, entity_id, name) tuples: a new name inserts a fresh
+    row, an already-seen name just refreshes its last_seen. The set of rows per
+    entity is its name history; the one with the latest last_seen is current."""
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    for kind, entity_id, name in observations:
+        if not entity_id or not name:
+            continue
+        conn.execute(
+            "INSERT INTO name_history (league_key, kind, entity_id, name, "
+            "first_seen, last_seen) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(league_key, kind, entity_id, name) "
+            "DO UPDATE SET last_seen=excluded.last_seen",
+            (league_key, kind, entity_id, name, now, now))
+
+
+def _store_scoreboard(conn, league_key, my_keys, wk, sb) -> None:
+    """Replace one week's matchup rows (team totals + per-category win flags)."""
+    conn.execute("DELETE FROM matchup_team WHERE league_key=? AND week=?", (league_key, wk))
+    conn.execute("DELETE FROM matchup_category WHERE league_key=? AND week=?", (league_key, wk))
+    for mu in sb:
+        tks = [t["team_key"] for t in mu["teams"]]
+        for i, t in enumerate(mu["teams"]):
+            opp = tks[1 - i] if len(tks) == 2 else None
+            conn.execute(
+                "INSERT OR REPLACE INTO matchup_team (league_key, week, team_key, "
+                "opp_team_key, points, is_mine) VALUES (?,?,?,?,?,?)",
+                (league_key, mu["week"], t["team_key"], opp, _num(t["points"]),
+                 1 if t["team_key"] in my_keys else 0))
+            for sid, val in t["cats"].items():
+                winner = mu["winners"].get(sid)
+                win = None if winner is None else (1 if winner == t["team_key"] else 0)
+                conn.execute(
+                    "INSERT OR REPLACE INTO matchup_category (league_key, week, "
+                    "team_key, stat_id, value, win) VALUES (?,?,?,?,?,?)",
+                    (league_key, mu["week"], t["team_key"], sid, str(val), win))
+
+
+def refresh_current_matchup(league_key=None, cfg=None) -> dict:
+    """Pull just the current week's scoreboard and update the live matchup score.
+
+    Cheap enough to run on every streaming refresh: unlike refresh() it skips
+    prior weeks, standings, schedule, and transactions."""
+    cfg = cfg or load_cfg()
+    conn = db.connect()
+    league_key = league_key or default_league_key(conn)
+    if not league_key:
+        conn.close()
+        return {"league_key": None, "week": None, "matchups": 0}
+    my_keys = {r[0] for r in conn.execute(
+        "SELECT team_key FROM fantasy_roster WHERE team_key LIKE ? AND is_mine=1",
+        (f"{league_key}.t.%",))}
+    row = conn.execute(
+        "SELECT current_week FROM league_meta WHERE league_key=?", (league_key,)).fetchone()
+    week = row[0] if row and row[0] else None
+    if not week:  # league_meta not populated yet -> one settings call to learn the week
+        meta, _ = fetch_settings(league_key, cfg)
+        week = int(meta.get("current_week") or 0) or None
+    if not week:
+        conn.close()
+        return {"league_key": league_key, "week": None, "matchups": 0}
+    sb = fetch_scoreboard(league_key, cfg, week)
+    with conn:
+        _store_scoreboard(conn, league_key, my_keys, week, sb)
+    conn.close()
+    return {"league_key": league_key, "week": week, "matchups": len(sb)}
 
 
 def refresh(league_key=None) -> dict:
@@ -238,11 +329,12 @@ def refresh(league_key=None) -> dict:
     conn = db.connect()
     league_key = league_key or default_league_key(conn)
     my_keys = {r[0] for r in conn.execute(
-        "SELECT team_key FROM fantasy_roster WHERE team_key LIKE ?", (f"{league_key}.t.%",))}
+        "SELECT team_key FROM fantasy_roster WHERE team_key LIKE ? AND is_mine=1",
+        (f"{league_key}.t.%",))}
 
     meta, cats = fetch_settings(league_key, cfg)
     standings = fetch_standings(league_key, cfg, my_keys)
-    managers = fetch_managers(league_key, cfg)
+    managers, manager_recs = fetch_managers(league_key, cfg)
     week = int(meta.get("current_week") or 0) or None
     weeks_played = list(range(1, week + 1)) if week else []
     scoreboards = [(w, fetch_scoreboard(league_key, cfg, w)) for w in weeks_played]
@@ -272,6 +364,15 @@ def refresh(league_key=None) -> dict:
             [(league_key, c["stat_id"], c["display_name"], c["name"], c["sort_order"],
               c["is_pitching"], c["ord"]) for c in cats])
 
+        conn.execute("DELETE FROM league_managers WHERE league_key=?", (league_key,))
+        for m in manager_recs:
+            conn.execute(
+                "INSERT OR REPLACE INTO league_managers (league_key, team_key, "
+                "manager_id, guid, nickname, is_commissioner, is_comanager) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (league_key, m["team_key"], m["manager_id"], m["guid"],
+                 m["nickname"], m["is_commissioner"], m["is_comanager"]))
+
         conn.execute("DELETE FROM league_teams WHERE league_key=?", (league_key,))
         conn.execute("DELETE FROM team_category WHERE league_key=?", (league_key,))
         for t in standings:
@@ -287,25 +388,15 @@ def refresh(league_key=None) -> dict:
                     "value, value_str) VALUES (?,?,?,?,?)",
                     (league_key, t["team_key"], sid, num, str(val) if val is not None else None))
 
+        # Append-only name history (so renames are visible: "now X, formerly Y").
+        observations = [("team", t["team_key"], t["name"]) for t in standings]
+        observations += [("manager", m["guid"], m["nickname"])
+                         for m in manager_recs
+                         if m["guid"] and m["guid"] != "--hidden--" and m["nickname"]]
+        _record_name_history(conn, league_key, observations)
+
         for wk, sb in scoreboards:
-            conn.execute("DELETE FROM matchup_team WHERE league_key=? AND week=?", (league_key, wk))
-            conn.execute("DELETE FROM matchup_category WHERE league_key=? AND week=?", (league_key, wk))
-            for mu in sb:
-                tks = [t["team_key"] for t in mu["teams"]]
-                for i, t in enumerate(mu["teams"]):
-                    opp = tks[1 - i] if len(tks) == 2 else None
-                    conn.execute(
-                        "INSERT OR REPLACE INTO matchup_team (league_key, week, team_key, "
-                        "opp_team_key, points, is_mine) VALUES (?,?,?,?,?,?)",
-                        (league_key, mu["week"], t["team_key"], opp, _num(t["points"]),
-                         1 if t["team_key"] in my_keys else 0))
-                    for sid, val in t["cats"].items():
-                        winner = mu["winners"].get(sid)
-                        win = None if winner is None else (1 if winner == t["team_key"] else 0)
-                        conn.execute(
-                            "INSERT OR REPLACE INTO matchup_category (league_key, week, "
-                            "team_key, stat_id, value, win) VALUES (?,?,?,?,?,?)",
-                            (league_key, mu["week"], t["team_key"], sid, str(val), win))
+            _store_scoreboard(conn, league_key, my_keys, wk, sb)
 
         for tx in txns:
             if not tx["txn_key"]:
@@ -318,10 +409,12 @@ def refresh(league_key=None) -> dict:
             for i, mv in enumerate(tx["moves"]):
                 conn.execute(
                     "INSERT INTO transaction_moves (txn_key, idx, player_name, player_id, "
-                    "move_type, source_team, dest_team) VALUES (?,?,?,?,?,?,?)",
+                    "team_abbr, move_type, source_team, dest_team, source_team_key, "
+                    "dest_team_key) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (tx["txn_key"], i, mv["player_name"],
-                     match.match(lookup, mv["player_name"] or ""),
-                     mv["move_type"], mv["source_team"], mv["dest_team"]))
+                     match.match(lookup, mv["player_name"] or "", mv.get("team_abbr")),
+                     mv.get("team_abbr"), mv["move_type"], mv["source_team"], mv["dest_team"],
+                     mv.get("source_team_key"), mv.get("dest_team_key")))
     conn.close()
     return {"league": meta.get("name"), "teams": len(standings), "week": week,
             "matchups": sum(len(sb) for _, sb in scoreboards),

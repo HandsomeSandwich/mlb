@@ -79,8 +79,30 @@ def inject_helpers():
 
 @app.route("/")
 def index():
+    """ADHD-friendly command center: this week's matchup, what my players have
+    left to do this week, and what to act on. The MLB leaderboards moved to
+    /leaders."""
+    import datetime as _dt
+    conn = get_db()
+    leagues = Q.dashboard_leagues(conn)
+    league_key = request.args.get("league") or Q.default_dashboard_league(conn)
+    today = _dt.date.today().isoformat()
+    data = Q.dashboard(conn, league_key, today) if league_key else None
+    return render_template("dashboard.html", leagues=leagues,
+                           league_key=league_key, d=data)
+
+
+@app.route("/leaders")
+def leaders():
     conn = get_db()
     yr = selected_season(conn)
+    # Rate-stat (ERA/WHIP) qualifier scales to the season so the cards aren't
+    # empty mid-year: ~half the innings leader's outs, with a sane floor. A
+    # completed season lands near a normal ~100+ IP cutoff; June lands lower.
+    top_outs = conn.execute(
+        "SELECT MAX(outs) FROM pitching_season WHERE season=?", (yr,)).fetchone()[0] or 0
+    qual = max(90, round(0.5 * top_outs))
+    rate_where = f"outs >= {qual}"
     ctx = {
         "hr_leaders": Q.leaders(conn, "batting_season", "hr", yr),
         "rbi_leaders": Q.leaders(conn, "batting_season", "rbi", yr),
@@ -89,7 +111,9 @@ def index():
         "win_leaders": Q.leaders(conn, "pitching_season", "w", yr),
         "sv_leaders": Q.leaders(conn, "pitching_season", "sv", yr),
         "k_leaders": Q.leaders(conn, "pitching_season", "so", yr),
-        "era_leaders": Q.leaders(conn, "pitching_season", "era", yr, asc=True, where="outs >= 450"),
+        "era_leaders": Q.leaders(conn, "pitching_season", "era", yr, asc=True, where=rate_where),
+        "whip_leaders": Q.leaders(conn, "pitching_season", "whip", yr, asc=True, where=rate_where),
+        "ip_floor": qual // 3,
     }
     return render_template("index.html", **ctx)
 
@@ -226,6 +250,7 @@ def myteam():
     return render_template(
         "myteam.html", teams=teams, team_key=team_key, team_name=team_name,
         hitters=hitters_, pitchers=pitchers_, cats=cats, unmatched=unmatched,
+        levels=Q.roster_levels(conn, hitters_, pitchers_, yr),
     )
 
 
@@ -236,7 +261,7 @@ def streaming():
     dates = Q.streaming_dates(conn)
     if not dates:
         return render_template("streaming.html", dates=[], rows=None)
-    date = request.args.get("date") or dates[0]
+    date = request.args.get("date") or Q.default_streaming_date(dates)
     league = Q.streaming_league(conn)
     rows = Q.streaming_board(conn, date, yr, league)
     mine = [r for r in rows if r["avail"] == "mine"]
@@ -253,12 +278,15 @@ def matchup():
     leagues = Q.league_keys(conn)
     if not leagues:
         return render_template("matchup.html", leagues=[], meta=None)
-    league_key = request.args.get("league") or leagues[0]
+    league_key = request.args.get("league") or Q.default_league(conn)
     meta, mine = Q.league_info(conn, league_key)
     return render_template(
         "matchup.html", leagues=leagues, league_key=league_key, meta=meta, mine=mine,
         mv=Q.matchup_view(conn, league_key), ranks=Q.league_ranks(conn, league_key),
         h2h=Q.h2h_history(conn, league_key), managers=Q.team_managers(conn, league_key),
+        allplay=Q.all_play_standings(conn, league_key),
+        commish=Q.commissioner_teams(conn, league_key),
+        aka=Q.name_changes(conn, league_key)["aka_by_team"],
     )
 
 
@@ -268,7 +296,7 @@ def transactions():
     leagues = Q.league_keys(conn)
     if not leagues:
         return render_template("transactions.html", leagues=[], a=None, meta=None)
-    league_key = request.args.get("league") or leagues[0]
+    league_key = request.args.get("league") or Q.default_league(conn)
     meta, _ = Q.league_info(conn, league_key)
     return render_template(
         "transactions.html", leagues=leagues, league_key=league_key, meta=meta,
@@ -285,7 +313,7 @@ def collusion():
     leagues = Q.league_keys(conn)
     if not leagues:
         return render_template("collusion.html", leagues=[], cv=None, meta=None)
-    league_key = request.args.get("league") or leagues[0]
+    league_key = request.args.get("league") or Q.default_league(conn)
     focus = None
     a, b = request.args.get("a"), request.args.get("b")
     if a and b:
@@ -294,6 +322,7 @@ def collusion():
     return render_template(
         "collusion.html", leagues=leagues, league_key=league_key, meta=meta,
         cv=Q.collusion_view(conn, league_key, focus),
+        vscom=Q.vs_commissioner_pitching(conn, league_key),
     )
 
 
@@ -301,25 +330,58 @@ def collusion():
 def targets():
     conn = get_db()
     yr = selected_season(conn)
-    leagues = Q.league_keys(conn)
-    league_key = (request.args.get("league") or (leagues[0] if leagues else None))
-    cats = Q.category_targets(conn, league_key, yr) if league_key else []
+    league_key = request.args.get("league") or Q.default_league(conn)
+    cats = Q.upgrade_targets(conn, league_key, yr) if league_key else []
+    churn = Q.churn_history(conn, league_key)["by_pid"] if league_key else {}
     return render_template(
         "targets.html", league_key=league_key, has_league=bool(league_key),
-        cats=cats, buysell=Q.buy_sell(conn, yr),
+        cats=cats, buysell=Q.buy_sell(conn, yr), season=yr, churn=churn,
     )
 
 
 @app.route("/trades")
 def trades():
     conn = get_db()
-    yr = selected_season(conn)
-    leagues = Q.league_keys(conn)
-    league_key = request.args.get("league") or (leagues[0] if leagues else None)
+    league_key = request.args.get("league") or Q.default_league(conn)
+    # Use the league's own season, not the latest: a 2025 league's trades must
+    # be scored against 2025 stats, not this year's.
+    yr = Q.league_season(conn, league_key) if league_key else selected_season(conn)
     rows = Q.trade_factors(conn, league_key, yr) if league_key else []
     board = Q.manager_trade_scoreboard(conn, league_key, yr, rows) if league_key else []
     return render_template("trades.html", trades=rows, board=board,
-                           has_league=bool(league_key))
+                           has_league=bool(league_key), league_key=league_key,
+                           leagues=Q.league_switcher(conn), season=yr)
+
+
+@app.route("/evaluate")
+def evaluate():
+    conn = get_db()
+    league_key = request.args.get("league") or Q.default_league(conn)
+    yr = Q.league_season(conn, league_key) if league_key else selected_season(conn)
+    give_ids = [int(x) for x in request.args.getlist("give") if x.isdigit()]
+    get_ids = [int(x) for x in request.args.getlist("get") if x.isdigit()]
+    result = Q.evaluate_trade(conn, league_key, give_ids, get_ids, yr) if league_key else None
+    q = (request.args.get("q") or "").strip()
+    matches = Q.search_players(conn, q, yr, limit=20) if q else []
+    return render_template("evaluate.html", result=result, league_key=league_key,
+                           has_league=bool(league_key), leagues=Q.league_switcher(conn),
+                           season=yr, give_ids=give_ids, get_ids=get_ids,
+                           q=q, matches=matches)
+
+
+@app.route("/handoffs")
+def handoffs():
+    conn = get_db()
+    league_key = request.args.get("league") or Q.default_league(conn)
+    yr = Q.league_season(conn, league_key) if league_key else selected_season(conn)
+    data = Q.handoff_outcomes(conn, league_key, yr) if league_key else None
+    scorecard = Q.my_drops_scorecard(conn, league_key, yr, data=data) if data else None
+    adds_card = Q.my_adds_scorecard(conn, league_key, yr) if data else None
+    # "Churn": players I both added and dropped — auditable (dates + days held).
+    churn = Q.churn_history(conn, league_key) if league_key else {"items": [], "by_pid": {}}
+    return render_template("handoffs.html", data=data, scorecard=scorecard,
+                           adds_card=adds_card, churn=churn, has_league=bool(league_key),
+                           league_key=league_key, leagues=Q.league_switcher(conn), season=yr)
 
 
 @app.route("/weekly")
@@ -363,22 +425,31 @@ def player(player_id):
     pseasons = Q.player_seasons(conn, player_id)
     yr = selected_season(conn, pseasons) or selected_season(conn)
     kind = "pit" if (p["position"] == "P") else "bat"
-    if kind == "bat" and not Q.batting_season_row(conn, player_id, yr) \
-            and Q.pitching_season_row(conn, player_id, yr):
+    bat_row = Q.batting_season_row(conn, player_id, yr)
+    pit_row = Q.pitching_season_row(conn, player_id, yr)
+    if kind == "bat" and not bat_row and pit_row:
         kind = "pit"
+    # Label the comparison pool (hitters / starters / relievers) so the chart
+    # caption says exactly who the percentile is measured against.
+    if kind == "pit" and pit_row is not None:
+        level_pool = "relievers" if Q.pitcher_role(pit_row["g"], pit_row["gs"]) == "RP" else "starters"
+    else:
+        level_pool = "hitters"
     return render_template(
         "player.html",
         p=p,
         player_season=yr,
         player_seasons=pseasons,
         kind=kind,
-        bat=Q.batting_season_row(conn, player_id, yr),
-        pit=Q.pitching_season_row(conn, player_id, yr),
+        bat=bat_row,
+        pit=pit_row,
         statcast=Q.statcast_row(conn, player_id, yr),
         bat_log=Q.batting_log(conn, player_id, yr),
         pit_log=Q.pitching_log(conn, player_id, yr),
         rolling=Q.rolling_form(conn, player_id, yr, kind),
         overlay=Q.weekly_overlay(conn, player_id, kind),
+        levels=Q.category_levels(conn, player_id, yr, kind),
+        level_pool=level_pool,
     )
 
 

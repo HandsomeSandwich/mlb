@@ -13,3 +13,5 @@ data/*.log
 COLLUSION_EVIDENCE.md
 COLLUSION_EVIDENCE.pdf
 THE_STORY.md
+# machine-specific launcher (contains an absolute home path)
+Start Fantasy Baseball.command

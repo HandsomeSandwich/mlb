@@ -2,6 +2,7 @@
 {% block title %}Matchup & League{% endblock %}
 
 {% block content %}
+{% macro crown(name) %}{% if commish and name in commish %}<span class="crown" title="League commissioner">👑</span>{% endif %}{% endmacro %}
 {% if not meta %}
   <div class="empty" style="padding:3rem 0">
     <h1>No league data yet</h1>
@@ -11,15 +12,62 @@
 {% else %}
 <div class="myteam-head">
   <h1>{{ meta['name'] }}</h1>
-  {% if mine %}<span class="muted">You're <b>#{{ mine['rank'] }}</b> of {{ meta['num_teams'] }} · {{ mine['wins'] }}–{{ mine['losses'] }}{% if mine['ties'] %}–{{ mine['ties'] }}{% endif %}</span>{% endif %}
+  {% if mine %}<span class="muted">You're <b>#{{ mine['rank'] }}</b> of {{ meta['num_teams'] }} · {{ mine['wins'] }}–{{ mine['losses'] }}{% if mine['ties'] %}–{{ mine['ties'] }}{% endif %}{{ crown(mine['name']) }}</span>{% endif %}
 </div>
+
+{% if allplay and allplay['me'] %}
+{% set me = allplay['me'] %}
+<h2 class="section-head">True standings <span class="muted" style="font-weight:400;font-size:0.85rem">— luck-adjusted</span></h2>
+<p class="muted" style="margin-top:-0.4rem">Your record depends on <em>who you drew</em> each week. The all-play record scores every team against <b>all {{ allplay['n'] - 1 }} others</b> every week — schedule-independent true strength. The gap is luck.</p>
+
+{% if me['rank_gap'] is not none and (me['rank_gap'] != 0 or me['luck_w']) %}
+<div class="luck-banner {{ 'luck-good' if (me['luck_w'] or 0) < 0 else ('luck-bad' if (me['luck_w'] or 0) > 0 else '') }}">
+  {% if me['luck_w'] < 0 %}
+    You're <b>#{{ me['actual_rank'] }}</b> in the standings but <b>#{{ me['ap_rank'] }}</b> in true strength —
+    about <b>{{ (me['luck_w']|abs) }}</b> {{ 'win' if (me['luck_w']|abs) == 1 else 'wins' }} of <b>bad luck</b>. Your team is better than its record.
+  {% elif me['luck_w'] > 0 %}
+    You're <b>#{{ me['actual_rank'] }}</b> in the standings but <b>#{{ me['ap_rank'] }}</b> in true strength —
+    riding about <b>{{ me['luck_w'] }}</b> {{ 'win' if me['luck_w'] == 1 else 'wins' }} of <b>good luck</b>. Expect some regression.
+  {% else %}
+    Your standing (<b>#{{ me['actual_rank'] }}</b>) matches your true strength (<b>#{{ me['ap_rank'] }}</b>) — the record is earned.
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="table-wrap" style="max-width:720px">
+<table class="stats">
+  <thead><tr>
+    <th class="num" title="Rank by true (all-play) strength">Str</th>
+    <th class="txt">Team</th>
+    <th class="num" title="Actual H2H record">Record</th>
+    <th class="num" title="Standings rank">Rk</th>
+    <th class="num" title="All-play record: vs everyone, every week">All-play</th>
+    <th class="num" title="Wins above (+) or below (−) what the all-play record expects">Luck</th>
+  </tr></thead>
+  <tbody>
+  {% for r in allplay['rows'] %}
+    <tr class="{{ 'row-me' if r['is_mine'] }}">
+      <td><b>{{ r['ap_rank'] }}</b></td>
+      <td class="txt name">{{ r['team'] }}{{ crown(r['team']) }}{% if r['mgr'] %} <span class="muted">({{ r['mgr'] }})</span>{% endif %}{% if aka and aka.get(r['team']) %} <span class="muted aka" title="Previously: {{ aka.get(r['team'])|join(', ') }}">· formerly {{ aka.get(r['team'])|join(', ') }}</span>{% endif %}</td>
+      <td>{{ r['actual_w'] }}–{{ r['actual_l'] }}{% if r['actual_t'] %}–{{ r['actual_t'] }}{% endif %}</td>
+      <td class="muted">{{ r['actual_rank'] }}</td>
+      <td class="muted">{{ r['ap_w'] }}–{{ r['ap_l'] }}{% if r['ap_t'] %}–{{ r['ap_t'] }}{% endif %}</td>
+      <td class="{{ 'luck-pos' if (r['luck_w'] or 0) > 0.4 else ('luck-neg' if (r['luck_w'] or 0) < -0.4 else 'muted') }}">
+        {% if r['luck_w'] is not none %}{{ '%+g' % r['luck_w'] }}{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem">Sorted by true strength. <span class="luck-neg">Green</span> luck = unlucky (better than the record shows); <span class="luck-pos">amber</span> = lucky (overperforming).</p>
+{% endif %}
 
 {% if mv %}
 <h2 class="section-head">Week {{ mv['week'] }} matchup</h2>
 <div class="vs-head">
-  <span class="vs-me">{{ mv['my_name'] }}</span>
+  <span class="vs-me">{{ mv['my_name'] }}{{ crown(mv['my_name']) }}</span>
   <span class="vs-score {{ 'win' if mv['won'] > mv['lost'] else ('loss' if mv['won'] < mv['lost'] else '') }}">{{ mv['won'] }}–{{ mv['lost'] }}{% if mv['tied'] %}–{{ mv['tied'] }}{% endif %}</span>
-  <span class="vs-opp">{{ mv['opp_name'] }}{% if managers.get(mv['opp_name']) %} <span class="muted">({{ managers.get(mv['opp_name']) }})</span>{% endif %}</span>
+  <span class="vs-opp">{{ mv['opp_name'] }}{{ crown(mv['opp_name']) }}{% if managers.get(mv['opp_name']) %} <span class="muted">({{ managers.get(mv['opp_name']) }})</span>{% endif %}</span>
 </div>
 <div class="table-wrap" style="max-width:560px">
 <table class="stats line">
@@ -47,7 +95,7 @@
   {% for r in h2h %}
     <tr>
       <td>{{ r['week'] }}</td>
-      <td class="txt name">{{ r['opp'] }}{% if r['opp_mgr'] %} <span class="muted">({{ r['opp_mgr'] }})</span>{% endif %}</td>
+      <td class="txt name">{{ r['opp'] }}{{ crown(r['opp']) }}{% if r['opp_mgr'] %} <span class="muted">({{ r['opp_mgr'] }})</span>{% endif %}</td>
       <td class="txt"><span class="pill-{{ 'w' if r['result']=='W' else ('l' if r['result']=='L' else 't') }}">{{ r['result'] }}</span></td>
       <td>{{ r['won'] }}–{{ r['lost'] }}{% if r['tied'] %}–{{ r['tied'] }}{% endif %}</td>
       <td class="txt muted" style="font-size:0.78rem">{{ r['lost_cats']|join(', ') }}</td>
