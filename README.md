@@ -72,6 +72,19 @@ python -m fantasybb.yahoo sync <team_key>   # match roster to the DB + store it
 
 Create the app at https://developer.yahoo.com/apps/create/ — **Confidential
 Client**, redirect URI `https://localhost:8000`, **Fantasy Sports → Read**.
+### No-network sample DB
+
+If `statsapi.mlb.com` is unreachable (some networks block it) or you just want
+to click around quickly, seed a self-contained sample instead of running the
+full ingest:
+
+```bash
+.venv/bin/python scripts/seed_sample.py    # writes data/baseball.db
+```
+
+It writes realistic, **approximate** 2025-shaped season lines for a pool of
+stars so every page (and the trade analyzer) renders with data. These figures
+are illustrative, not an official feed — use the real ingest for accuracy.
 
 ## Run the dashboard
 
@@ -113,6 +126,40 @@ python -m fantasybb.league refresh        # standings, matchup, transactions
 ```
 * **Player page** — bio, per-season line, Statcast strip, and game log.
 * **Season dropdown** (top-right) switches every page between ingested years.
+* **Player page** — bio, season line, Statcast strip, and full game log.
+* **Trade** — paste the players each side receives (e.g. `Soto` vs
+  `Soriano, Schmitt`) and get a fairness verdict. Each player is valued with a
+  standard 5×5 roto **z-score** model: how many standard deviations above/below
+  the league pool they are in R/HR/RBI/SB/AVG (hitters) and W/SV/K/ERA/WHIP
+  (pitchers), with rate stats weighted by playing time. Side totals, a
+  per-category breakdown, and an even/edge/lopsided call settle the argument
+  with numbers instead of vibes. Two-way players (Ohtani) get both a hitter and
+  a pitcher value. Run `python test_trade_analyzer.py` for a no-network check.
+
+## View it on your phone
+
+The dashboard binds to `127.0.0.1`. To reach it from a phone on the same
+network, bind to all interfaces and visit `http://<your-computer-ip>:5000`:
+
+```bash
+.venv/bin/flask --app app run --host 0.0.0.0 --port 5000
+```
+
+To reach it from anywhere (e.g. cellular), put a tunnel in front of the local
+server — this hands back a public HTTPS URL you can open on your phone:
+
+```bash
+# Cloudflare (no account needed for a quick tunnel):
+cloudflared tunnel --url http://127.0.0.1:5000
+# …or ngrok:
+ngrok http 5000
+```
+
+> Heads-up: a quick tunnel exposes the app publicly with no auth, and only
+> lasts while the command runs. Tunnel providers are also unreachable from
+> locked-down/allowlisted networks (e.g. some CI/cloud sandboxes) — run the
+> tunnel from a machine with open egress. For an always-on URL, deploy the app
+> (any host that runs a Flask/WSGI app) and point your phone at it.
 
 ## Layout
 

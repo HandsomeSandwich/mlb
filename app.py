@@ -416,6 +416,22 @@ def weekly():
     )
 
 
+@app.route("/trade")
+def trade():
+    conn = get_db()
+    yr = selected_season(conn)
+    a_raw = request.args.get("a", "")
+    b_raw = request.args.get("b", "")
+    a_names = Q.parse_player_names(a_raw)
+    b_names = Q.parse_player_names(b_raw)
+    result = None
+    if a_names or b_names:
+        result = Q.evaluate_text_trade(conn, a_names, b_names, yr)
+    return render_template(
+        "trade.html", a_raw=a_raw, b_raw=b_raw, result=result,
+    )
+
+
 @app.route("/player/<int:player_id>")
 def player(player_id):
     conn = get_db()
