@@ -46,6 +46,32 @@ python3 -m venv .venv
 re-run, or backfill by date range, without redoing work. The DB lands at
 `data/baseball.db`.
 
+### Multiple seasons
+
+Tables are keyed by `(player_id, season)`, so you can hold several years at
+once. Ingest each with its own `--season`, then switch years from the dropdown
+in the dashboard header:
+
+```bash
+.venv/bin/python -m fantasybb.ingest all --season 2025
+.venv/bin/python -m fantasybb.ingest all --season 2026
+.venv/bin/python -m fantasybb.ingest statcast --season 2026
+```
+
+## Connect your Yahoo fantasy team
+
+One-time OAuth (credentials + tokens live in the gitignored
+`data/yahoo_oauth.json`):
+
+```bash
+python -m fantasybb.yahoo url          # open the printed URL, click Agree
+python -m fantasybb.yahoo code <CODE>  # paste the code from the redirect URL
+python -m fantasybb.yahoo teams        # list your teams -> get a team_key
+python -m fantasybb.yahoo sync <team_key>   # match roster to the DB + store it
+```
+
+Create the app at https://developer.yahoo.com/apps/create/ — **Confidential
+Client**, redirect URI `https://localhost:8000`, **Fantasy Sports → Read**.
 ### No-network sample DB
 
 If `statsapi.mlb.com` is unreachable (some networks block it) or you just want
@@ -69,6 +95,37 @@ are illustrative, not an official feed — use the real ingest for accuracy.
 * **Home** — hitting & pitching leader cards (HR, RBI, SB, AVG, W, SV, K, ERA).
 * **Hitters / Pitchers** — sortable, filterable leaderboards (click any column
   header to sort; filter by team, position, min PA/IP; search by name).
+* **Hot / Cold** — rolling last-N-days form with a window OPS vs. season delta.
+* **Streaming** — upcoming probable SPs graded by Pitcher List (Nick Pollack)
+  tiers, cross-checked against your league's free agents, with a start/sit read
+  on your own arms. Refresh daily: `python -m fantasybb.streaming refresh`.
+* **Weekly** — a player's Mon–Sun weeks compared across seasons (2025 vs 2026),
+  color-graded by OPS/ERA, to spot when they run hot or cold each year.
+* **My Team** — your synced Yahoo roster with season stats, Statcast, IL tags,
+  and a 5×5 category snapshot.
+* **League** — your current H2H matchup category-by-category vs your opponent,
+  where you rank in every scoring category, and a **"who beat you, and how"**
+  season history (per week: opponent + manager, result, categories lost).
+* **Transactions** — behavioral analysis of league adds/drops/trades: activity
+  timeline, drop→add "feeding", synchronized waiver timing, trade value reads,
+  surfaced *signals*, and **how each opponent's activity ramps the week they
+  play you**.
+* **Collusion lens** — directional A↔B coordination labeled by **manager name**:
+  feeding shown as **× expected** (actual ÷ volume-predicted, so it isn't just
+  "busiest managers"), trade value flow, tight timing, hub ranking, duplicate-
+  manager flag, and focused evidence cards for suspected pairs
+  (`?a=Team+One&b=Team+Two`). Patterns for review — *not* proof.
+  Includes an **account-slip detector**: flags near-simultaneous moves among
+  linked accounts that are *isolated* from any league-wide waiver batch (the
+  one-operator/two-device tell). Also `python -m fantasybb.league slips`.
+
+League pages need a one-time-per-refresh pull:
+
+```bash
+python -m fantasybb.league refresh        # standings, matchup, transactions
+```
+* **Player page** — bio, per-season line, Statcast strip, and game log.
+* **Season dropdown** (top-right) switches every page between ingested years.
 * **Player page** — bio, season line, Statcast strip, and full game log.
 * **Trade** — paste the players each side receives (e.g. `Soto` vs
   `Soriano, Schmitt`) and get a fairness verdict. Each player is valued with a

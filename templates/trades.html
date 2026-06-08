@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Trade analysis{% endblock %}
+
+{% macro grade(g) %}<span class="grade g-{{ g|lower if g and g != '—' else 'na' }}">{{ g }}</span>{% endmacro %}
+
+{% macro luck_pill(p) %}
+  {%- if p['luck_dir'] == 1 %}<span class="luck up">▲ due up</span>
+  {%- elif p['luck_dir'] == -1 %}<span class="luck down">▼ due down</span>
+  {%- else %}<span class="luck flat">~ on track</span>{% endif -%}
+{% endmacro %}
+
+{% block content %}
+<div class="page-head-row">
+  <h1 class="page-title">Trade analysis <span class="muted">— multi-factor</span></h1>
+  {% if leagues and leagues|length > 1 %}
+  <label class="year-filter">Year
+    <select onchange="const u=new URL(location); u.searchParams.set('league', this.value); location=u">
+      {% for lg in leagues %}
+        <option value="{{ lg.league_key }}" {{ 'selected' if lg.league_key == league_key }}>{{ lg.season }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+</div>
+<p class="muted" style="margin-top:-0.2rem; max-width:80ch">
+  Each trade rated on what the box score shows <b>now</b> (production value) <em>and</em>
+  what's under the hood — <b>luck</b> (hitter: AVG vs expected; pitcher: <b>ERA vs FIP</b>)
+  and <b>skill</b> (xwOBA/barrels, FIP/K-BB). The gap between “who's winning now” and
+  “who got the better underlying” is the edge the buyer may have seen.
+  <b>Grade</b> = underlying quality (A best). <b>▲/▼</b> = recent form.
+  <br><span style="font-size:0.92em"><b>now</b> / <b>since</b> are a <b>position-fair rating</b> (50 = average regular,
+  +15 per SD), so a pitcher and a hitter compare apples-to-apples.</span>
+</p>
+
+{% if board %}
+<h2 class="section-head">Manager trade scoreboard <span class="muted">(net production since each deal)</span></h2>
+<div class="table-wrap" style="max-width:560px">
+<table class="stats">
+  <thead><tr><th class="txt">Manager</th><th class="num">Trades</th><th class="num">W–L</th><th class="num">Net since</th><th class="num">Net value</th></tr></thead>
+  <tbody>
+  {% for r in board %}
+    <tr>
+      <td class="txt name">{{ r['mgr'] }}</td>
+      <td>{{ r['trades'] }}</td>
+      <td>{{ r['wins'] }}–{{ r['losses'] }}</td>
+      <td class="{{ 'hot-txt' if r['net_since'] > 0 else ('cold-txt' if r['net_since'] < 0 else '') }}">{{ '%+.1f'|format(r['net_since']) }}</td>
+      <td class="muted">{{ '%+.1f'|format(r['net_now']) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem; margin:0.3rem 0 1.2rem">
+  <b>Net since</b> = production banked from players received minus players given up, since each trade.
+  Positive = winning your trades.
+</p>
+{% endif %}
+
+{% if not has_league %}
+  <p class="muted">Sync a league first: <code>python -m fantasybb.league refresh</code></p>
+{% elif not trades %}
+  <p class="muted">No trades found in the loaded data.</p>
+{% else %}
+{% for t in trades %}
+<div class="trade-eval">
+  <div class="te-date">{{ t['when'] }}</div>
+  <div class="te-sides">
+    {% for s in t['sides'] %}
+    <div class="te-side">
+      <div class="te-head">
+        <span class="te-mgr">{{ s['mgr'] }} gets</span>
+        <span class="te-now" title="full-season value / production banked since the trade">now {{ s['now'] }} · since <b>{{ s['since'] }}</b></span>
+      </div>
+      {% for p in s['players'] %}
+        {% if p.get('thin') %}
+          <div class="te-player"><b>{{ p['name'] }}</b>{% if p['team'] %}
+            <span class="tp-team">{{ p['team'] }}</span>{% endif %}
+            <span class="muted">— no stats</span></div>
+        {% else %}
+        <div class="te-player">
+          <div class="tp-top">{{ grade(p['grade']) }}
+            <a href="{{ url_for('player', player_id=p['pid']) }}?season={{ season }}">{{ p['name'] }}</a>
+            {% if p['team'] %}<span class="tp-team">{{ p['team'] }}</span>{% endif %}
+            <span class="tp-form">{{ p['form'] }}</span>{{ luck_pill(p) }}
+          </div>
+          <div class="tp-prod">{{ p['prod'] }}</div>
+          <div class="tp-skill">{{ p['skill'] }}</div>
+          {% if p['since'] %}<div class="tp-since">since trade: {{ p['since']['line'] }}</div>{% endif %}
+          {% if p['luck_txt'] and p['luck_dir'] != 0 %}<div class="tp-luck">{{ p['luck_txt'] }}</div>{% endif %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% if not loop.last %}<div class="te-vs">⇄</div>{% endif %}
+    {% endfor %}
+  </div>
+  {% if t['verdict'] %}
+  <div class="te-verdict">
+    <span class="te-won"><b>Won so far (since {{ t['since_date'][5:] }}):</b> {{ t['verdict']['since'] }} (+{{ t['verdict']['since_gap'] }} banked)</span>
+    <span><b>Full-season value:</b> {{ t['verdict']['now'] }} (+{{ t['verdict']['now_gap'] }})</span>
+    <span><b>Underlying / regression:</b> {{ t['verdict']['fwd'] or 'roughly even' }}{% if t['verdict']['fwd'] and t['verdict']['fwd'] != t['verdict']['now'] %} <span class="flip">— flips the other way</span>{% endif %}</span>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+<p class="muted" style="font-size:0.8rem; margin-top:1rem">
+  “Now” value is a rough production heuristic; FIP uses 13·HR + 3·(BB+HBP) − 2·K per IP + 3.15.
+  Treat as decision support, not gospel.
+</p>
+{% endif %}
+{% endblock %}

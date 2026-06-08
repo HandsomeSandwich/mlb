@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% block title %}Collusion lens{% endblock %}
+
+{% set mgr = cv['managers'] if cv else {} %}
+{% macro who(team) %}{{ mgr.get(team) or team }}<span class="who-team">{{ team }}</span>{% endmacro %}
+
+{% macro oi_tag(oi) %}
+  {%- if oi is none -%}—
+  {%- elif oi >= 2.0 -%}<span class="oi oi-hot">{{ oi }}×</span>
+  {%- elif oi >= 1.3 -%}<span class="oi oi-warm">{{ oi }}×</span>
+  {%- else -%}<span class="oi oi-cool">{{ oi }}×</span>{%- endif -%}
+{% endmacro %}
+
+{% macro pair_evidence(p) %}
+  {% if not p %}
+    <p class="muted">No direct adds/drops/trades between these two — mild evidence <em>against</em> coordination.</p>
+  {% else %}
+    <div class="ev-grid">
+      <div class="ev"><b>{{ p['feed_ab'] }}</b><span>{{ mgr.get(p['a']) or p['a'] }} drops → {{ mgr.get(p['b']) or p['b'] }} adds</span><small>{{ oi_tag(p['oi_ab']) }} vs expected {{ p['exp_ab'] }}</small></div>
+      <div class="ev"><b>{{ p['feed_ba'] }}</b><span>{{ mgr.get(p['b']) or p['b'] }} drops → {{ mgr.get(p['a']) or p['a'] }} adds</span><small>{{ oi_tag(p['oi_ba']) }} vs expected {{ p['exp_ba'] }}</small></div>
+      <div class="ev"><b>{{ p['trades'] }}</b><span>trades</span>{% if p['trades'] %}<small>value {{ p['val_a'] }} / {{ p['val_b'] }}</small>{% endif %}</div>
+      <div class="ev"><b>{{ p['timing_co'] }}</b><span>moves within 15 min</span></div>
+    </div>
+    {% if p['feed_players_ab'] %}<div class="ev-players">{{ mgr.get(p['b']) or p['b'] }} grabbed from {{ mgr.get(p['a']) or p['a'] }}: {{ p['feed_players_ab']|join(', ') }}</div>{% endif %}
+    {% if p['feed_players_ba'] %}<div class="ev-players">{{ mgr.get(p['a']) or p['a'] }} grabbed from {{ mgr.get(p['b']) or p['b'] }}: {{ p['feed_players_ba']|join(', ') }}</div>{% endif %}
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+{% if not cv %}
+  <div class="empty" style="padding:3rem 0"><h1>No league data</h1>
+    <pre class="code">python -m fantasybb.league refresh</pre></div>
+{% else %}
+<h1 class="page-title">Collusion lens <span class="muted">— {{ meta['name'] if meta }}</span></h1>
+<div class="disclaimer">
+  ⚖️ <b>Read this first.</b> Patterns, <b>not proof.</b> The big confound is volume —
+  the busiest managers overlap most by chance. So the number that matters is
+  <b>“× expected”</b>: actual feeding ÷ what their add/drop volume predicts.
+  <b>1.0× = exactly chance.</b> Even 2× is suggestive, not damning. Treat these as
+  questions to ask.
+</div>
+
+{# ---- Account identity: now backed by Yahoo's stable per-account guid ---- #}
+{% if cv['shared'] and cv['shared']['same_league'] %}
+<div class="disclaimer" style="background:#3a1a1a;border-color:#b62324;color:#f8c7c4">
+  🚩 <b>Same Yahoo account on multiple teams in this league</b> (definitive — matched by account ID, not nickname):
+  {% for s in cv['shared']['same_league'] %}<b>{{ s['nickname'] }}</b> → {{ s['teams']|map(attribute='team')|join(', ') }}{% if not loop.last %}; {% endif %}{% endfor %}
+</div>
+{% elif cv['dupes'] %}
+<div class="disclaimer" style="background:#3a1a1a;border-color:#b62324;color:#f8c7c4">
+  🚩 Same manager nickname on multiple teams: {% for nick, teams in cv['dupes'].items() %}<b>{{ nick }}</b> → {{ teams|join(', ') }}{% if not loop.last %}; {% endif %}{% endfor %}
+</div>
+{% elif cv['shared'] and cv['shared']['has_guids'] %}
+<p class="muted" style="font-size:0.82rem">✓ Checked Yahoo account IDs directly: <b>no single account controls two teams</b> in this league. The signals below are about <em>behavior</em>.</p>
+{% elif cv['shared'] and cv['shared']['masked'] %}
+<p class="muted" style="font-size:0.82rem">🔒 Managers in this league have <b>private Yahoo profiles</b>, so Yahoo masks their account IDs (<code>--hidden--</code>) — no definitive same-account check is possible. Falling back to nickname matching and the <em>behavioral</em> signals below.</p>
+{% else %}
+<p class="muted" style="font-size:0.82rem">Account IDs not captured yet — re-sync the league (<code>python -m fantasybb.league refresh</code>) to enable definitive same-account detection. The signals below are about <em>behavior</em>.</p>
+{% endif %}
+
+{% if cv['comanagers'] %}
+<div class="disclaimer" style="background:#2a2230;border-color:#4a3a55;color:#d8c7e6">
+  👥 <b>Co-managed teams</b> (more than one person on the roster):
+  {% for c in cv['comanagers'] %}<b>{{ c['team'] }}</b> — {{ c['managers']|map(attribute='nickname')|join(' & ') }}{% if not loop.last %}; {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+{% if cv['renames'] and cv['renames']['changes'] %}
+<div class="disclaimer" style="background:#1c2230;border-color:#2a3140;color:#c9d1d9">
+  📛 <b>Name changes seen</b> (identity is tracked by stable ID, so a rename doesn't hide anyone):
+  {% for ch in cv['renames']['changes'] %}
+    {% if ch['kind'] == 'team' %}<b>{{ ch['current'] }}</b>{% else %}manager <b>{{ ch['current'] }}</b>{% if ch['team'] %} ({{ ch['team'] }}){% endif %}{% endif %}
+    — formerly {{ ch['former']|join(', ') }}{% if not loop.last %}; {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if cv['shared'] and cv['shared']['cross_league'] %}
+<p class="muted" style="font-size:0.8rem">Cross-league (same person, separate leagues — context only):
+  {% for s in cv['shared']['cross_league'] %}<b>{{ s['nickname'] }}</b> ({{ s['teams']|length }} leagues){% if not loop.last %}; {% endif %}{% endfor %}
+</p>
+{% endif %}
+
+<h2 class="section-head">📊 Noise-adjusted coordination (regression)</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:78ch">
+  The honest test: model how much each pair <em>should</em> feed each other given both
+  managers' activity, then measure the residual — <b>z</b> = standard deviations above
+  that expectation. This strips out the “busy managers overlap” noise. Only pairs that
+  are both sizable (4+ events) and <b>z ≥ 2</b> show here. <b>z ≥ 3</b> would be a real
+  red flag.
+</p>
+{% if cv['regression'] %}
+<table class="stats" style="max-width:600px">
+  <thead><tr><th class="txt">Pair</th><th class="num">Feeding z</th><th class="num">Timing z</th><th class="num">Feed A→B / B→A</th></tr></thead>
+  <tbody>
+  {% for p in cv['regression'] %}
+    {% set best = [p['sig_z'] or 0, p['timing_z'] or 0]|max %}
+    <tr>
+      <td class="txt name">{{ mgr.get(p['a']) or p['a'] }} ↔ {{ mgr.get(p['b']) or p['b'] }}{% if best >= 3 %} 🚩{% endif %}</td>
+      <td class="{{ 'hl' if (p['sig_z'] or 0) >= 2 }}">{{ p['sig_z'] if p['sig_z'] is not none else '—' }}</td>
+      <td class="{{ 'hl' if (p['timing_z'] or 0) >= 2 }}">{{ p['timing_z'] if p['timing_z'] is not none else '—' }}</td>
+      <td class="muted">{{ p['feed_ab'] }} / {{ p['feed_ba'] }} · ≤15m ×{{ p['timing_co'] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted" style="font-size:0.8rem">Both channels modeled against an activity baseline. Suggestive where z ≥ 2; a 🚩 (z ≥ 3) would be a real flag. The same-second extreme is handled separately by the slip detector above.</p>
+{% else %}
+<p class="muted">✓ <b>Nothing clears the bar.</b> Once activity is controlled for, no pair's feeding
+  is statistically unusual (no sizable pair at z ≥ 2). The drop→add “feeding” signal is
+  <b>noise</b> — exactly what you'd expect from managers of differing activity levels.
+  The real evidence lives in the slip detector and trade outcomes, not here.</p>
+{% endif %}
+
+{% if cv['graph'] and cv['graph']['edges'] %}
+<h2 class="section-head">Coordination map</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:74ch">
+  Each dot is a manager (bigger = more total coordination). <span style="color:#f0883e">Orange arrows</span>
+  = drop→add feeding (points from dropper to adder); <span style="color:#58a6ff">blue lines</span> = trades.
+  Drag nodes around; hover an edge for details. <b>{{ cv['managers'].get(cv['hub_name']) }}</b> is highlighted.
+</p>
+<div id="netgraph" class="net-box"></div>
+{% endif %}
+
+{% if cv['slips'] %}
+<h2 class="section-head">🔍 Account-slip detector</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:74ch">
+  Near-simultaneous moves among the linked accounts ({{ cv['slips']['watched']|map('default')|join(', ') }})
+  where <b>no other team was active</b> within ±10 minutes — i.e. <em>not</em> a
+  league-wide waiver batch. Isolated same-second activity across two accounts is
+  the fingerprint of one person on two devices. Watch for new ones after each refresh.
+</p>
+{% if cv['slips']['isolated'] %}
+<div class="slip-list">
+  {% for f in cv['slips']['isolated'] %}
+  <div class="slip {{ 'slip-zero' if f['gap'] == 0 }}">
+    <div class="slip-top"><span class="slip-when">{{ f['when'] }}</span>
+      <span class="slip-gap">{{ 'SAME SECOND' if f['gap'] == 0 else f['gap'] ~ 's apart' }}</span>
+      <span class="slip-iso">no other team active</span></div>
+    <div class="slip-body">
+      <div><b>{{ f['a_mgr'] }}</b>: {{ f['players_a']|join(', ') }}</div>
+      <div><b>{{ f['b_mgr'] }}</b>: {{ f['players_b']|join(', ') }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<p class="muted" style="font-size:0.8rem">
+  Honest caveat: “isolated” means no other manager happened to move nearby — on a
+  quiet morning that’s <em>possible</em> innocently. But same-second add+drop on
+  <b>both</b> accounts, on multiple days, with nobody else around, is the pattern
+  you'd screenshot and bring to the league. Refresh daily (<code>python -m fantasybb.league refresh</code>)
+  and re-check here to catch a fresh one live.
+</p>
+{% else %}
+<p class="muted">No isolated cross-account slips in the current data.</p>
+{% endif %}
+{% endif %}
+
+{% if cv['cycling'] %}
+<h2 class="section-head">🔁 Roster-cycling tripwire</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:74ch">
+  Quick hand-offs — one manager drops a player and the <b>same</b> other manager adds
+  him within {{ cv['cycling']['window_h'] }} hours. Repeated same-pair hand-offs are the
+  roster-stashing tell. (Waivers usually prevent these, so this is normally empty — it's
+  here to catch one the moment it happens.)
+</p>
+{% if cv['cycling']['flags'] %}
+<div class="slip-list">
+  {% for f in cv['cycling']['flags'] %}
+  <div class="slip slip-zero">
+    <div class="slip-top"><span class="slip-when">{{ f['dropper'] }} → {{ f['adder'] }}</span>
+      <span class="slip-gap">{{ f['count'] }}× quick hand-off</span></div>
+    <div class="slip-body">{{ f['players']|join(', ') }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">✓ Clean — no repeated quick hand-offs between any pair{% if cv['cycling']['total'] %} ({{ cv['cycling']['total'] }} isolated sub-{{ cv['cycling']['window_h'] }}h pickups, none repeated){% endif %}.</p>
+{% endif %}
+{% endif %}
+
+<h2 class="section-head">Your suspicions</h2>
+{% for f in cv['focus'] %}
+<div class="focus-card">
+  <h3>{{ who(f['a']) }} &nbsp;↔&nbsp; {{ who(f['b']) }}</h3>
+  {{ pair_evidence(f['pair']) }}
+</div>
+{% endfor %}
+
+<div class="focus-card">
+  <h3>Is {{ mgr.get(cv['hub_name']) or cv['hub_name'] }} a hub?</h3>
+  <p class="muted" style="margin-top:-0.3rem">Coordination signal with every other manager. “× exp” &gt; 1 means more feeding than volume predicts.</p>
+  <table class="stats">
+    <thead><tr><th class="txt">Manager</th><th class="num">Feed→them</th><th class="num">×exp</th><th class="num">Feed→{{ (mgr.get(cv['hub_name']) or '')[:4] }}</th><th class="num">×exp</th><th class="num">Trades</th><th class="num">Timing</th><th class="num">Score</th></tr></thead>
+    <tbody>
+    {% for p in cv['hub_pairs'] %}
+      {% set them = p['b'] if p['a'] == cv['hub_name'] else p['a'] %}
+      {% set f_them = p['feed_ab'] if p['a'] == cv['hub_name'] else p['feed_ba'] %}
+      {% set oi_them = p['oi_ab'] if p['a'] == cv['hub_name'] else p['oi_ba'] %}
+      {% set f_hub = p['feed_ba'] if p['a'] == cv['hub_name'] else p['feed_ab'] %}
+      {% set oi_hub = p['oi_ba'] if p['a'] == cv['hub_name'] else p['oi_ab'] %}
+      <tr>
+        <td class="txt name"><a href="?a={{ cv['hub_name']|urlencode }}&b={{ them|urlencode }}">{{ mgr.get(them) or them }}</a></td>
+        <td>{{ f_them }}</td><td>{{ oi_tag(oi_them) }}</td>
+        <td>{{ f_hub }}</td><td>{{ oi_tag(oi_hub) }}</td>
+        <td class="{{ 'hl' if p['trades'] }}">{{ p['trades'] }}</td>
+        <td>{{ p['timing_co'] }}</td><td class="hl">{{ p['score'] }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 class="section-head">All coordinated pairs <span class="muted">(ranked by signal beyond chance)</span></h2>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr><th class="txt">Manager A</th><th class="txt">Manager B</th><th class="num">A→B</th><th class="num">×exp</th><th class="num">B→A</th><th class="num">×exp</th><th class="num">Trades</th><th class="num">≤15m</th><th class="num">Score</th></tr></thead>
+  <tbody>
+  {% for p in cv['pairs'][:18] %}
+    <tr>
+      <td class="txt name"><a href="?a={{ p['a']|urlencode }}&b={{ p['b']|urlencode }}">{{ mgr.get(p['a']) or p['a'] }}</a></td>
+      <td class="txt">{{ mgr.get(p['b']) or p['b'] }}</td>
+      <td>{{ p['feed_ab'] }}</td><td>{{ oi_tag(p['oi_ab']) }}</td>
+      <td>{{ p['feed_ba'] }}</td><td>{{ oi_tag(p['oi_ba']) }}</td>
+      <td class="{{ 'hl' if p['trades'] }}">{{ p['trades'] }}</td>
+      <td>{{ p['timing_co'] }}</td><td class="hl">{{ p['score'] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2 class="section-head">Hub ranking <span class="muted">(total coordination involvement)</span></h2>
+<div class="hub-bars">
+  {% set top = cv['hubs'][0]['score'] if cv['hubs'] else 1 %}
+  {% for h in cv['hubs'] %}
+    <div class="hub-row">
+      <span class="hub-name">{{ mgr.get(h['team']) or h['team'] }}</span>
+      <span class="hub-bar"><span style="width:{{ (h['score']/top*100)|round|int }}%"></span></span>
+      <span class="hub-score">{{ h['score'] }}</span>
+    </div>
+  {% endfor %}
+</div>
+
+{# ---- Did opponents tank their pitching the week they faced Chad? ---- #}
+{% if vscom and vscom['has_focus'] %}
+<h2 class="section-head">Pitching effort vs {{ vscom['focus_mgr'] or vscom['focus_team'] }}
+  <span class="muted">(scored cats + innings: their average the week they played {{ vscom['focus_mgr'] or 'the commissioner' }} vs every other week)</span></h2>
+<p class="muted" style="font-size:0.82rem">
+  Each cell is <b>vs-Chad average → other-weeks average (Δ)</b>. A negative Δ across W / K / QS / IP means a team
+  pitched <em>less</em> than its norm against {{ vscom['focus_mgr'] or 'Chad' }} — the "didn't contest the matchup" signal.
+  Read with the sample size in mind: <b>n</b> = how many times they actually faced {{ vscom['focus_mgr'] or 'Chad' }}.
+  Rows sorted by strikeout drop (biggest tank first).
+</p>
+<div class="table-wrap">
+<table class="grid vscom">
+  <thead><tr>
+    <th class="txt">Manager</th><th>n</th>
+    {% for cat in vscom['cats'] %}<th>{{ cat }} <span class="muted">vs→oth (Δ)</span></th>{% endfor %}
+  </tr></thead>
+  <tbody>
+  {% for r in vscom['rows'] %}
+    <tr class="{{ 'mine-row' if r['is_mine'] }}">
+      <td class="txt">{{ r['mgr'] or r['team'] }}{% if r['is_mine'] %} <span class="who-team">you</span>{% endif %}</td>
+      <td>{{ r['n_vs'] }}</td>
+      {% for cat in vscom['cats'] %}
+        {% set c = r['cells'][cat] %}
+        <td>
+          {%- if c['vs'] is none %}—
+          {%- else -%}
+            {{ '%.1f'|format(c['vs']) }} → {{ '%.1f'|format(c['oth']) if c['oth'] is not none else '—' }}
+            {% if c['diff'] is not none %}
+              <span class="oi {{ 'oi-cool' if c['diff'] < -0.5 else ('oi-warm' if c['diff'] > 0.5 else '') }}">{{ '%+.1f'|format(c['diff']) }}</span>
+            {% endif %}
+          {%- endif -%}
+        </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem">
+  ⚠️ Single-matchup rows (n=1) are one-game noise, not a trend — weigh the n≥3 rows far more heavily.
+  IP is shown as true innings (Yahoo's thirds notation converted).
+</p>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if cv and cv['graph'] and cv['graph']['edges'] %}
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script>
+const G = {{ cv['graph']|tojson }};
+const nodes = G.nodes.map(n => ({
+  id: n.id, label: n.label, value: Math.max(n.value, 1),
+  color: n.hub ? { background: '#f85149', border: '#b62324' }
+                : { background: '#1c2230', border: '#2a3140' },
+  font: { color: '#e6edf3' }
+}));
+const edges = G.edges.map(e => e.kind === 'trade'
+  ? { from: e.from, to: e.to, value: e.value, title: e.title, arrows: 'to,from',
+      color: { color: '#58a6ff' }, smooth: { type: 'curvedCW', roundness: 0.2 } }
+  : { from: e.from, to: e.to, value: e.value, title: e.title, arrows: 'to',
+      color: { color: '#f0883e', opacity: 0.7 }, smooth: { type: 'curvedCW', roundness: 0.15 } });
+new vis.Network(document.getElementById('netgraph'), { nodes, edges }, {
+  nodes: { shape: 'dot', scaling: { min: 8, max: 40 }, borderWidth: 2 },
+  edges: { scaling: { min: 1, max: 8 } },
+  physics: { barnesHut: { gravitationalConstant: -6000, springLength: 130 }, stabilization: { iterations: 200 } },
+  interaction: { hover: true, tooltipDelay: 120 }
+});
+</script>
+{% endif %}
+{% endblock %}

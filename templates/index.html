@@ -21,7 +21,7 @@
 
 {% block content %}
 <section class="hero">
-  <h1>2025 MLB Season Dashboard</h1>
+  <h1>{{ season }} MLB Season Dashboard</h1>
   <p>A searchable database of every player, season line, and game log — built for fantasy.
      Jump into <a href="{{ url_for('hitters') }}">hitters</a> or
      <a href="{{ url_for('pitchers') }}">pitchers</a>, or click any leader below.</p>
@@ -40,6 +40,7 @@
   {{ card('Wins', win_leaders) }}
   {{ card('Saves', sv_leaders) }}
   {{ card('Strikeouts', k_leaders) }}
-  {{ card('ERA (150+ IP)', era_leaders, 'era') }}
+  {{ card('ERA (%d+ IP)'|format(ip_floor), era_leaders, 'era') }}
+  {{ card('WHIP (%d+ IP)'|format(ip_floor), whip_leaders, 'era') }}
 </div>
 {% endblock %}

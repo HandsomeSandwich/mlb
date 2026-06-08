@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Handoffs{% endblock %}
+
+{% block content %}
+<div class="page-head-row">
+  <h1 class="page-title">Handoffs <span class="muted">— who benefits from drop→adds</span></h1>
+  {% if leagues and leagues|length > 1 %}
+  <label class="year-filter">Year
+    <select onchange="const u=new URL(location); u.searchParams.set('league', this.value); location=u">
+      {% for lg in leagues %}
+        <option value="{{ lg.league_key }}" {{ 'selected' if lg.league_key == league_key }}>{{ lg.season }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endif %}
+</div>
+
+{% if not has_league %}
+  <p class="muted">Sync a league first: <code>python -m fantasybb.league refresh</code></p>
+{% elif not data or not data['events'] %}
+  <p class="muted">No drop→add handoffs found within {{ data['gap_days'] if data else 7 }} days. Refresh transactions: <code>python -m fantasybb.league refresh</code></p>
+{% else %}
+<p class="muted" style="margin-top:-0.2rem; max-width:84ch">
+  A <b>handoff</b> = one manager drops a player and another adds him within <b>{{ data['gap_days'] }} days</b>.
+  For each, we measure the player's real MLB production (per game) in the <b>{{ data['window_days'] }} days before</b>
+  vs <b>after</b> the pickup. <b>Δ</b> is the change in per-game value: <span class="luck-pos">+positive</span> means
+  the player took off after the handoff (the <em>adder benefited</em>); <span class="luck-neg">−negative</span> means he
+  regressed. Recently-added players show “pending” until games accrue.
+</p>
+
+{% if churn and churn['items'] %}
+<h2 class="section-head">🔁 Your hold list <span class="muted">— players you added then dropped</span></h2>
+<div class="luck-banner luck-bad">
+  You added <em>and</em> later dropped <b>{{ churn['items']|length }}</b>
+  {{ 'player' if churn['items']|length == 1 else 'players' }} — you chose them, then gave them away. Each row is a real add→drop in the Yahoo log; “held” is the longest stretch you kept him.
+</div>
+<div class="table-wrap" style="max-width:640px">
+<table class="stats">
+  <thead><tr>
+    <th class="txt">Player</th>
+    <th class="num" title="Times you added him">Added</th>
+    <th class="num" title="Times you dropped him">Dropped</th>
+    <th class="num" title="Longest stretch you held him">Held</th>
+    <th class="num">Last drop</th>
+  </tr></thead>
+  <tbody>
+  {% for it in churn['items'] %}
+    <tr>
+      <td class="txt name"><a href="{{ url_for('player', player_id=it['pid']) }}?season={{ season }}">{{ it['player'] }}</a></td>
+      <td>{{ it['adds'] }}</td>
+      <td>{{ it['drops'] }}</td>
+      <td class="muted">{{ it['held_days'] }}d</td>
+      <td class="muted">{{ it['last_drop'] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem">Only players you held <b>{{ churn['min_hold_days'] }}+ days</b> count here{% if churn['quick'] %} — {{ churn['quick'] }} quick claim-and-cut{{ '' if churn['quick'] == 1 else 's' }} (held under {{ churn['min_hold_days'] }} days, likely failed/auto claims) were left out{% endif %}. Drawn straight from your add/drop transactions — check the dates.</p>
+{% endif %}
+
+{% if scorecard and scorecard['total'] %}
+<h2 class="section-head">📋 Your drop report card <span class="muted">— {{ scorecard['team'] }}</span></h2>
+<div class="luck-banner {{ 'luck-good' if scorecard['good'] >= scorecard['bad'] else 'luck-bad' }}">
+  Of your <b>{{ scorecard['scored'] }}</b> evaluable claimed drops,
+  <b class="luck-neg">{{ scorecard['good'] }}</b> were <b>good decisions</b>
+  (the player did little for whoever grabbed him){% if scorecard['good_pct'] is not none %} — that's <b>{{ scorecard['good_pct'] }}%</b>{% endif %}.
+  The other <b class="luck-pos">{{ scorecard['bad'] }}</b> produced after you cut them.
+  {% if scorecard['pending'] %}<span class="muted">({{ scorecard['pending'] }} too recent to judge.)</span>{% endif %}
+</div>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr>
+    <th class="num">Date</th><th class="txt">Player you dropped</th><th class="txt">Grabbed by</th>
+    <th class="txt">After ({{ scorecard['window_days'] }}d)</th>
+    <th class="num" title="Post-pickup production value">Value</th>
+    <th class="txt">Verdict</th>
+  </tr></thead>
+  <tbody>
+  {% for e in scorecard['rows'] %}
+    <tr>
+      <td class="muted">{{ e['date'] }}</td>
+      <td class="txt name"><a href="{{ url_for('player', player_id=e['pid']) }}?season={{ season }}">{{ e['player'] }}</a>{% if e['kind']=='pit' %} <span class="pgroup">P</span>{% endif %}{% if churn and e['pid'] in churn['by_pid'] %} <span class="churn-tag" title="You added and dropped him">🔁</span>{% endif %}</td>
+      <td class="txt muted">{{ e['adder_mgr'] }}</td>
+      <td class="txt muted" style="font-size:0.78rem">{{ e['after']['line'] if e['after'] else 'no games yet' }}</td>
+      <td class="{{ 'luck-pos' if (e['after_val'] or 0) > scorecard['ok_value'] else 'muted' }}">{{ e['after_val'] if e['after_val'] is not none else '—' }}</td>
+      <td class="txt">
+        {%- if e['verdict']=='good' %}<span class="pill-w">good drop</span>
+        {%- elif e['verdict']=='stung' %}<span class="pill-l">dropped too early</span>
+        {%- else %}<span class="pill-t">pending</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem">“Good drop” = the player produced ≤ {{ scorecard['ok_value'] }} value (roughly replacement level) over the {{ scorecard['window_days'] }} days after you cut him. “Dropped too early” = he produced more than that for his new team.</p>
+{% endif %}
+
+{% if adds_card and adds_card['total'] %}
+<h2 class="section-head">📋 Your pickup report card <span class="muted">— {{ adds_card['team'] }} (all adds)</span></h2>
+<div class="luck-banner {{ 'luck-good' if adds_card['hits'] >= adds_card['busts'] else 'luck-bad' }}">
+  Of your <b>{{ adds_card['scored'] }}</b> evaluable pickups,
+  <b class="luck-neg">{{ adds_card['hits'] }}</b> <b>panned out</b>
+  (produced above replacement in their first {{ adds_card['window_days'] }} days with you){% if adds_card['hit_pct'] is not none %} — <b>{{ adds_card['hit_pct'] }}%</b>{% endif %}.
+  <b class="luck-pos">{{ adds_card['busts'] }}</b> were busts.
+  {% if adds_card['pending'] %}<span class="muted">({{ adds_card['pending'] }} too recent to judge.)</span>{% endif %}
+</div>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr>
+    <th class="num">Date</th><th class="txt">Player you added</th>
+    <th class="txt">Before ({{ adds_card['window_days'] }}d)</th>
+    <th class="txt">After ({{ adds_card['window_days'] }}d)</th>
+    <th class="num" title="Production value in his first window with you">Value</th>
+    <th class="txt">Verdict</th>
+  </tr></thead>
+  <tbody>
+  {% for e in adds_card['rows'] %}
+    <tr>
+      <td class="muted">{{ e['date'] }}</td>
+      <td class="txt name"><a href="{{ url_for('player', player_id=e['pid']) }}?season={{ season }}">{{ e['player'] }}</a>{% if e['kind']=='pit' %} <span class="pgroup">P</span>{% endif %}{% if churn and e['pid'] in churn['by_pid'] %} <span class="churn-tag" title="You added and dropped him">🔁</span>{% endif %}</td>
+      <td class="txt muted" style="font-size:0.78rem">{{ e['before']['line'] if e['before'] else '—' }}</td>
+      <td class="txt muted" style="font-size:0.78rem">{{ e['after']['line'] if e['after'] else 'no games yet' }}</td>
+      <td class="{{ 'luck-neg' if (e['after_val'] or 0) > adds_card['ok_value'] else 'muted' }}">{{ e['after_val'] if e['after_val'] is not none else '—' }}</td>
+      <td class="txt">
+        {%- if e['verdict']=='hit' %}<span class="pill-w">panned out</span>
+        {%- elif e['verdict']=='bust' %}<span class="pill-l">bust</span>
+        {%- else %}<span class="pill-t">pending</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem">“Panned out” = produced more than {{ adds_card['ok_value'] }} value (above replacement) in the {{ adds_card['window_days'] }} days after you added him. Covers every add, not just handoffs.</p>
+{% endif %}
+
+<h2 class="section-head">Who's benefiting <span class="muted">(by value banked after pickups)</span></h2>
+<div class="table-wrap" style="max-width:640px">
+<table class="stats">
+  <thead><tr>
+    <th class="txt">Manager</th>
+    <th class="num" title="Players they added off a fresh drop">Handoffs</th>
+    <th class="num" title="Total post-pickup production value">After value</th>
+    <th class="num" title="Players who improved after the pickup / players with enough games to score">Improved</th>
+    <th class="num" title="Average before→after change in per-game value">Avg Δ</th>
+  </tr></thead>
+  <tbody>
+  {% for b in data['beneficiaries'] %}
+    <tr>
+      <td class="txt name">{{ b['mgr'] }}</td>
+      <td>{{ b['handoffs'] }}</td>
+      <td class="{{ 'hl' if b['after_val'] and b['after_val'] > 0 }}">{{ b['after_val'] }}</td>
+      <td class="muted">{{ b['improved'] }}/{{ b['scored'] }}</td>
+      <td class="{{ 'luck-pos' if (b['avg_delta'] or 0) > 0 else ('luck-neg' if (b['avg_delta'] or 0) < 0 else 'muted') }}">
+        {% if b['avg_delta'] is not none %}{{ '%+g' % b['avg_delta'] }}{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem">A high <b>after value</b> with a positive <b>Avg Δ</b> means a manager keeps landing players right as they get hot — good timing, or worth a closer look. This is a prompt to investigate, not proof of anything.</p>
+
+<h2 class="section-head">Drops that blew up <span class="muted">(by value the cut player gave someone else)</span></h2>
+<div class="table-wrap" style="max-width:640px">
+<table class="stats">
+  <thead><tr>
+    <th class="txt">Manager</th>
+    <th class="num" title="Players they dropped who were claimed within the window">Drops claimed</th>
+    <th class="num" title="Total production those players banked AFTER the drop, for their new team">Value lost</th>
+    <th class="num" title="Dropped players who got better after leaving / players with enough games to score">Blew up</th>
+    <th class="num" title="Average before→after change in per-game value for their cuts">Avg Δ</th>
+  </tr></thead>
+  <tbody>
+  {% for d in data['droppers'] %}
+    <tr>
+      <td class="txt name">{{ d['mgr'] }}</td>
+      <td>{{ d['handoffs'] }}</td>
+      <td class="{{ 'luck-neg' if d['after_val'] and d['after_val'] > 0 }}">{{ d['after_val'] }}</td>
+      <td class="muted">{{ d['blew_up'] }}/{{ d['scored'] }}</td>
+      <td class="{{ 'luck-pos' if (d['avg_delta'] or 0) > 0 else ('luck-neg' if (d['avg_delta'] or 0) < 0 else 'muted') }}">
+        {% if d['avg_delta'] is not none %}{{ '%+g' % d['avg_delta'] }}{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:0.78rem">High <b>value lost</b> = this manager keeps cutting players who go on to produce for whoever grabs them. A positive <b>Avg Δ</b> means their cuts tend to get <em>better</em> after leaving — the classic “dropped him too early.”</p>
+
+{% if data['blowups'] %}
+<h2 class="section-head">Biggest individual blowups <span class="muted">(dropped, then raked)</span></h2>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr>
+    <th class="num">Date</th><th class="txt">Player</th>
+    <th class="txt">Dropped by → grabbed by</th>
+    <th class="txt">Before ({{ data['window_days'] }}d)</th>
+    <th class="txt">After ({{ data['window_days'] }}d)</th>
+    <th class="num">Δ</th>
+  </tr></thead>
+  <tbody>
+  {% for e in data['blowups'] %}
+    <tr>
+      <td class="muted">{{ e['date'] }}</td>
+      <td class="txt name"><a href="{{ url_for('player', player_id=e['pid']) }}?season={{ season }}">{{ e['player'] }}</a>{% if e['kind']=='pit' %} <span class="pgroup">P</span>{% endif %}</td>
+      <td class="txt"><span class="muted">{{ e['dropper_mgr'] }}</span> → <b>{{ e['adder_mgr'] }}</b></td>
+      <td class="txt muted" style="font-size:0.78rem">{{ e['before']['line'] if e['before'] else '—' }}</td>
+      <td class="txt" style="font-size:0.78rem">{{ e['after']['line'] }}</td>
+      <td class="{{ 'luck-pos' if (e['delta'] or 0) > 0 else ('luck-neg' if (e['delta'] or 0) < 0 else 'muted') }}">
+        {% if e['delta'] is not none %}{{ '%+g' % e['delta'] }}{% else %}·{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h2 class="section-head">Every handoff <span class="muted">({{ data['n'] }}, newest first)</span></h2>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr>
+    <th class="num">Date</th>
+    <th class="txt">Player</th>
+    <th class="txt">Dropped by → Added by</th>
+    <th class="num" title="Hours between the drop and the add">Gap</th>
+    <th class="txt">Before ({{ data['window_days'] }}d)</th>
+    <th class="txt">After ({{ data['window_days'] }}d)</th>
+    <th class="num" title="Change in per-game value">Δ</th>
+  </tr></thead>
+  <tbody>
+  {% for e in data['events'] %}
+    <tr>
+      <td class="muted">{{ e['date'] }}</td>
+      <td class="txt name"><a href="{{ url_for('player', player_id=e['pid']) }}?season={{ season }}">{{ e['player'] }}</a>{% if e['kind']=='pit' %} <span class="pgroup">P</span>{% endif %}</td>
+      <td class="txt"><span class="muted">{{ e['dropper_mgr'] }}</span> → <b>{{ e['adder_mgr'] }}</b></td>
+      <td class="muted">{{ e['gap_h'] }}h</td>
+      <td class="txt muted" style="font-size:0.78rem">{{ e['before']['line'] if e['before'] else '—' }}</td>
+      <td class="txt muted" style="font-size:0.78rem">{{ e['after']['line'] if e['after'] else 'pending' }}{% if e['after'] and not e['after_ok'] %} <span class="aka">small sample</span>{% endif %}</td>
+      <td class="{{ 'luck-pos' if (e['delta'] or 0) > 0 else ('luck-neg' if (e['delta'] or 0) < 0 else 'muted') }}" title="{{ 'too few games to score' if e['delta'] is none and e['after'] }}">
+        {% if e['delta'] is not none %}{{ '%+g' % e['delta'] }}{% else %}·{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

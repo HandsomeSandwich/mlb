@@ -3,5 +3,15 @@ __pycache__/
 *.pyc
 data/*.db
 data/*.db-journal
+# Yahoo OAuth credentials + cached tokens -- never commit these
+data/yahoo_oauth.json
+.env
 .DS_Store
 .idea/
+data/*.log
+# private evidence doc — names real people, never publish to the repo
+COLLUSION_EVIDENCE.md
+COLLUSION_EVIDENCE.pdf
+THE_STORY.md
+# machine-specific launcher (contains an absolute home path)
+Start Fantasy Baseball.command

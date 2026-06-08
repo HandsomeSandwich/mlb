@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}My Team{% endblock %}
+
+{% macro pcell(r) %}
+  {%- if r['player_id'] -%}
+    <a href="{{ url_for('player', player_id=r['player_id']) }}?season={{ season }}">{{ r['full_name'] or r['yahoo_name'] }}</a>
+  {%- else -%}
+    <span class="unmatched">{{ r['yahoo_name'] }}</span>
+  {%- endif -%}
+  {% if r['status'] %}<span class="il-tag">{{ r['status'] }}</span>{% endif %}
+{% endmacro %}
+
+{% macro lvlmatrix(players, cats) %}
+<table class="lvl-matrix">
+  <thead><tr><th class="name">Player</th>{% for c in cats %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for pl in players %}
+    <tr>
+      <td class="name">
+        {%- if pl.player_id -%}
+          <a href="{{ url_for('player', player_id=pl.player_id) }}?season={{ season }}">{{ pl.name }}</a>
+        {%- else -%}{{ pl.name }}{%- endif -%}
+        {% if pl.role %}<span class="muted" style="font-size:0.7rem"> {{ pl.role }}</span>{% endif %}
+      </td>
+      {% for cell in pl.cells %}
+      <td class="tier-{{ cell.cls }}">
+        <div class="lvl-cell">
+          <div class="bar"><i style="width: {{ cell.pct or 0 }}%"></i></div>
+          <span class="n">{{ cell.pct if cell.pct is not none else '—' }}</span>
+          <span class="v">{{ cell.value }}</span>
+        </div>
+      </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{% block content %}
+{% if not teams %}
+  <div class="empty" style="padding:3rem 0">
+    <h1>No Yahoo team synced yet</h1>
+    <p>Run this once to pull your roster:</p>
+    <pre class="code">python -m fantasybb.yahoo teams        # find your team_key
+python -m fantasybb.yahoo sync &lt;team_key&gt;</pre>
+  </div>
+{% else %}
+<div class="myteam-head">
+  <h1>{{ team_name }} <span class="muted">— {{ season }}</span></h1>
+  {% if teams|length > 1 %}
+  <select onchange="const u=new URL(location); u.searchParams.set('team_key', this.value); location=u">
+    {% for t in teams %}
+      <option value="{{ t['team_key'] }}" {{ 'selected' if t['team_key'] == team_key }}>{{ t['team_name'] }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+</div>
+
+<h2 class="section-head">Category snapshot</h2>
+<div class="cat-strip">
+  <div class="cat-group"><span class="cat-label">Hitting</span>
+    <div><b>{{ cats.r }}</b><span>R</span></div>
+    <div><b>{{ cats.hr }}</b><span>HR</span></div>
+    <div><b>{{ cats.rbi }}</b><span>RBI</span></div>
+    <div><b>{{ cats.sb }}</b><span>SB</span></div>
+    <div><b>{{ '%.3f'|format(cats.avg) if cats.avg is not none else '—' }}</b><span>AVG</span></div>
+  </div>
+  <div class="cat-group"><span class="cat-label">Pitching</span>
+    <div><b>{{ cats.w }}</b><span>W</span></div>
+    <div><b>{{ cats.sv }}</b><span>SV</span></div>
+    <div><b>{{ cats.so }}</b><span>K</span></div>
+    <div><b>{{ '%.2f'|format(cats.era) if cats.era is not none else '—' }}</b><span>ERA</span></div>
+    <div><b>{{ '%.2f'|format(cats.whip) if cats.whip is not none else '—' }}</b><span>WHIP</span></div>
+    <div><b>{{ ip_str((cats.ip * 3)|round|int) }}</b><span>IP</span></div>
+  </div>
+</div>
+
+{% if levels and (levels.hitters or levels.pitchers) %}
+<h2 class="section-head">Category levels
+  <span class="muted">— percentile vs qualified {{ season }} pool (100 = elite)</span>
+</h2>
+{% if levels.hitters %}
+<div class="table-wrap">{{ lvlmatrix(levels.hitters, levels.bat_cats) }}</div>
+{% endif %}
+{% if levels.pitchers %}
+<div class="table-wrap" style="margin-top:0.8rem">{{ lvlmatrix(levels.pitchers, levels.pit_cats) }}</div>
+{% endif %}
+{% endif %}
+
+<h2 class="section-head">Hitters</h2>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr>
+    <th class="txt">Slot</th><th class="txt">Player</th><th class="txt">Elig</th><th class="txt">Tm</th>
+    <th class="num">PA</th><th class="num">R</th><th class="num">HR</th><th class="num">RBI</th>
+    <th class="num">SB</th><th class="num">AVG</th><th class="num">OPS</th><th class="num">Brl%</th>
+  </tr></thead>
+  <tbody>
+  {% for r in hitters %}
+    <tr>
+      <td class="txt slot">{{ r['selected_position'] or '' }}</td>
+      <td class="txt name">{{ pcell(r) }}</td>
+      <td class="txt muted">{{ r['positions'] or '' }}</td>
+      <td class="txt">{{ r['yahoo_team'] or '—' }}</td>
+      <td>{{ r['b_pa'] if r['b_pa'] is not none else '—' }}</td>
+      <td>{{ r['r'] if r['r'] is not none else '—' }}</td>
+      <td class="{{ 'hl' if r['hr'] }}">{{ r['hr'] if r['hr'] is not none else '—' }}</td>
+      <td>{{ r['rbi'] if r['rbi'] is not none else '—' }}</td>
+      <td>{{ r['sb'] if r['sb'] is not none else '—' }}</td>
+      <td>{{ '%.3f'|format(r['avg']) if r['avg'] is not none else '—' }}</td>
+      <td class="hl">{{ '%.3f'|format(r['ops']) if r['ops'] is not none else '—' }}</td>
+      <td>{{ r['barrel_pct'] if r['barrel_pct'] is not none else '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2 class="section-head">Pitchers</h2>
+<div class="table-wrap">
+<table class="stats">
+  <thead><tr>
+    <th class="txt">Slot</th><th class="txt">Player</th><th class="txt">Elig</th><th class="txt">Tm</th>
+    <th class="num">GS</th><th class="num">W</th><th class="num">SV</th><th class="num">K</th>
+    <th class="num">IP</th><th class="num">ERA</th><th class="num">WHIP</th>
+  </tr></thead>
+  <tbody>
+  {% for r in pitchers %}
+    <tr>
+      <td class="txt slot">{{ r['selected_position'] or '' }}</td>
+      <td class="txt name">{{ pcell(r) }}</td>
+      <td class="txt muted">{{ r['positions'] or '' }}</td>
+      <td class="txt">{{ r['yahoo_team'] or '—' }}</td>
+      <td>{{ r['gs'] if r['gs'] is not none else '—' }}</td>
+      <td class="{{ 'hl' if r['w'] }}">{{ r['w'] if r['w'] is not none else '—' }}</td>
+      <td class="{{ 'hl' if r['sv'] }}">{{ r['sv'] if r['sv'] is not none else '—' }}</td>
+      <td class="hl">{{ r['p_so'] if r['p_so'] is not none else '—' }}</td>
+      <td>{{ ip_str(r['outs']) if r['outs'] is not none else '—' }}</td>
+      <td>{{ '%.2f'|format(r['era']) if r['era'] is not none else '—' }}</td>
+      <td>{{ '%.2f'|format(r['whip']) if r['whip'] is not none else '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if unmatched %}
+<p class="muted" style="margin-top:1rem">
+  ⚠️ Not matched to a {{ season }} stat line: {{ unmatched|join(', ') }}.
+  (Usually a player with no MLB games in {{ season }}, or a mid-season call-up.)
+</p>
+{% endif %}
+{% endif %}
+{% endblock %}

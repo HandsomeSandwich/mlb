@@ -84,8 +84,8 @@ def ingest_statcast(conn, season: int, start: str | None = None, end: str | None
                (player_id, season, bbe, avg_ev, max_ev, avg_la, barrel_pct,
                 hard_hit_pct, xwoba, xba)
                VALUES (?,?,?,?,?,?,?,?,?,?)
-               ON CONFLICT(player_id) DO UPDATE SET
-                season=excluded.season, bbe=excluded.bbe, avg_ev=excluded.avg_ev,
+               ON CONFLICT(player_id, season) DO UPDATE SET
+                bbe=excluded.bbe, avg_ev=excluded.avg_ev,
                 max_ev=excluded.max_ev, avg_la=excluded.avg_la,
                 barrel_pct=excluded.barrel_pct, hard_hit_pct=excluded.hard_hit_pct,
                 xwoba=excluded.xwoba, xba=excluded.xba""",

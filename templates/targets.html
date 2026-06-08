@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Targets{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Targets</h1>
+
+<h2 class="section-head">Fix your weak categories <span class="muted">(real upgrades, not just "best available")</span></h2>
+{% if not has_league %}
+  <p class="muted">Sync a league first: <code>python -m fantasybb.league refresh</code></p>
+{% elif not cats %}
+  <p class="muted">No clearly-weak categories right now, or the free-agent pool isn't loaded
+    (<code>python -m fantasybb.streaming refresh</code>).</p>
+{% else %}
+<p class="muted" style="margin-top:-0.4rem; max-width:84ch">Categories you're in the bottom third of. Each free agent is judged against your <b>weakest established regular</b> in that category (150+ PA / 90+ outs), valued on this season <em>blended with last</em> and nudged by recent form — so a slumping vet isn't punished for a small sample and a hot part-timer isn't mislabeled. <span class="utag up">upgrade</span> / <span class="utag">≈ marginal</span> / <span class="utag down">worse</span> is per-category context, <b>not a drop call</b>.</p>
+{% macro flags(t) %}
+  {% if t['age'] %}<span class="utag {{ 'young' if t['age'] <= 25 else ('old' if t['age'] >= 33 else 'age') }}" title="age this season">{{ t['age'] }}y</span>{% endif %}
+  {% if t['form'] and t['form'] != '→' %}<span class="utag {{ 'up' if t['form']=='▲' else 'down' }}" title="recent form vs season">{{ t['form'] }} form</span>{% endif %}
+  {% if t['grade'] and t['grade'] not in ('—', None) %}<span class="utag grade-{{ t['grade'] }}" title="underlying skill (xwOBA / FIP)">{{ t['grade'] }}</span>{% endif %}
+  {% if t['luck_dir'] == 1 %}<span class="utag up" title="{{ t['luck_txt'] }}">due ↑</span>{% elif t['luck_dir'] == -1 %}<span class="utag down" title="{{ t['luck_txt'] }}">due ↓</span>{% endif %}
+{% endmacro %}
+<div class="leader-grid">
+  {% for c in cats %}
+  <div class="leader-card upgrade-card">
+    <h3>{{ c['label'] }} <span class="muted" style="font-weight:400">— you're #{{ c['my_rank'] }}/{{ c['n'] }}</span></h3>
+    {% if c['bench'] %}
+      <p class="bench-ref muted">Your weakest regular here: <b>{{ c['bench']['name'] }}</b>
+        ({% if c['is_rate'] %}{{ '%.3f'|format(c['bench']['cur']) if c['bench']['cur'] is not none else '—' }}{% else %}{{ c['bench']['cur'] }}{% endif %}{% if c['bench']['g'] %}, {{ c['bench']['g'] }}G{% endif %}{% if c['bench']['form'] and c['bench']['form'] != '→' %} {{ c['bench']['form'] }}{% endif %}) — baseline, not a drop</p>
+    {% endif %}
+    {% for t in c['targets'] %}
+      <div class="tgt">
+        <div class="tgt-top">
+          <a href="{{ url_for('player', player_id=t['player_id']) }}?season={{ season }}">{{ t['full_name'] }}</a>{% if churn and t['player_id'] in churn %}{% set ch = churn[t['player_id']] %} <span class="churn-tag" title="You've had him before: added {{ ch['adds'] }}×, dropped {{ ch['drops'] }}× (held {{ ch['held_days'] }}d, last dropped {{ ch['last_drop'] }})">🔁 had before</span>{% endif %}
+          <span class="tgt-val">{% if c['is_rate'] %}{{ '%.3f'|format(t['val']) if t['val'] is not none else '—' }}{% else %}{{ t['val'] }}{% endif %}
+            {% if t['verdict'] %}<span class="utag {{ 'up' if t['verdict']=='up' else ('down' if t['verdict']=='down' else '') }}">{{ 'upgrade' if t['verdict']=='up' else ('worse' if t['verdict']=='down' else '≈') }}</span>{% endif %}
+          </span>
+        </div>
+        <div class="tgt-line muted">{{ t['line'] }}</div>
+        <div class="tgt-flags">{{ flags(t) }}</div>
+      </div>
+    {% else %}<p class="muted">none available</p>{% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<h2 class="section-head">Buy low / sell high <span class="muted">(expected vs actual average)</span></h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:74ch">
+  Each dot is a hitter: <b>x = expected AVG</b> (from Statcast contact quality, deflated for
+  strikeouts), <b>y = actual AVG</b>. Below the line = hitting <em>worse</em> than his contact
+  deserves → <span class="hot-txt">unlucky, BUY</span>. Above = <span class="cold-txt">lucky, SELL</span>.
+  ({{ buysell['n'] }} qualified hitters, {{ season }}.)
+</p>
+<div class="chart-box"><canvas id="buysell" height="320"></canvas></div>
+
+<div class="two-col" style="margin-top:1rem">
+  <div>
+    <h3 class="section-head" style="color:var(--accent-2)">Buy low (unlucky)</h3>
+    <table class="stats"><thead><tr><th class="txt">Player</th><th class="num">AVG</th><th class="num">xAVG</th><th class="num">Δ</th></tr></thead><tbody>
+    {% for r in buysell['buy'] %}
+      <tr><td class="txt name"><a href="{{ url_for('player', player_id=r['player_id']) }}?season={{ season }}">{{ r['full_name'] }}</a></td>
+      <td>{{ '%.3f'|format(r['avg']) }}</td><td>{{ '%.3f'|format(r['xavg']) }}</td>
+      <td class="hot-txt">+{{ '%.3f'|format(r['luck']) }}</td></tr>
+    {% endfor %}</tbody></table>
+  </div>
+  <div>
+    <h3 class="section-head" style="color:#f85149">Sell high (lucky)</h3>
+    <table class="stats"><thead><tr><th class="txt">Player</th><th class="num">AVG</th><th class="num">xAVG</th><th class="num">Δ</th></tr></thead><tbody>
+    {% for r in buysell['sell'] %}
+      <tr><td class="txt name"><a href="{{ url_for('player', player_id=r['player_id']) }}?season={{ season }}">{{ r['full_name'] }}</a></td>
+      <td>{{ '%.3f'|format(r['avg']) }}</td><td>{{ '%.3f'|format(r['xavg']) }}</td>
+      <td class="cold-txt">{{ '%.3f'|format(r['luck']) }}</td></tr>
+    {% endfor %}</tbody></table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const PTS = {{ buysell['points']|tojson }};
+const buy = '#3fb950', sell = '#f85149', mid = '#8b949e';
+const data = PTS.filter(p => p.x != null && p.y != null).map(p => ({
+  x: p.x, y: p.y, n: p.n,
+  c: (p.y < p.x - 0.015) ? buy : (p.y > p.x + 0.015 ? sell : mid)
+}));
+const lo = 0.18, hi = 0.34;
+new Chart(document.getElementById('buysell'), {
+  type: 'scatter',
+  data: { datasets: [
+    { label: 'hitters', data: data, parsing: false,
+      pointBackgroundColor: data.map(d => d.c), pointRadius: 4, pointHoverRadius: 6 },
+    { type: 'line', label: 'expected = actual', data: [{x:lo,y:lo},{x:hi,y:hi}],
+      borderColor: '#586069', borderDash: [6,4], pointRadius: 0, fill: false }
+  ]},
+  options: {
+    plugins: { legend: { display: false },
+      tooltip: { callbacks: { label: c => `${c.raw.n}: AVG ${c.raw.y?.toFixed(3)} vs xAVG ${c.raw.x?.toFixed(3)}` } } },
+    scales: {
+      x: { title: { display: true, text: 'Expected AVG (xAVG)', color: '#8b949e' },
+           ticks: { color: '#8b949e' }, grid: { color: '#20262f' }, min: lo, max: hi },
+      y: { title: { display: true, text: 'Actual AVG', color: '#8b949e' },
+           ticks: { color: '#8b949e' }, grid: { color: '#20262f' }, min: lo, max: hi } }
+  }
+});
+</script>
+{% endblock %}

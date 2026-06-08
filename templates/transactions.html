@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Transaction analysis{% endblock %}
+
+{% block content %}
+{% if not a %}
+  <div class="empty" style="padding:3rem 0">
+    <h1>No transaction data yet</h1>
+    <pre class="code">python -m fantasybb.league refresh</pre>
+  </div>
+{% else %}
+<h1 class="page-title">Transaction analysis <span class="muted">— {{ meta['name'] if meta }}</span></h1>
+{% if league_options and league_options|length > 1 %}
+<div style="margin:-0.5rem 0 0.6rem">
+  <label class="muted" style="font-size:0.8rem">League / season:
+    <select onchange="const u=new URL(location); u.searchParams.set('league', this.value); location=u">
+      {% for lg in league_options %}
+        <option value="{{ lg['league_key'] }}" {{ 'selected' if lg['league_key'] == league_key }}>{{ lg['name'] }} ({{ lg['league_key'] }})</option>
+      {% endfor %}
+    </select>
+  </label>
+</div>
+{% endif %}
+<p class="muted" style="margin-top:-0.4rem; max-width:70ch">
+  Patterns across the last {{ a['n_txns'] }} league transactions. These are
+  <b>signals worth a look, not proof of collusion</b> — most have innocent
+  explanations (active managers, obvious waiver targets). Trade values are a
+  rough heuristic, not gospel.
+</p>
+
+{% if a['signals'] %}
+<h2 class="section-head">⚑ Signals</h2>
+<div class="signal-list">
+  {% for s in a['signals'] %}
+    <div class="signal sig-{{ s['level'] }}">
+      <span class="sig-kind">{{ s['kind'] }}</span>
+      <span class="sig-text">{{ s['text'] }}</span>
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if opp and opp['rows'] %}
+<h2 class="section-head">Opponent activity when they face you</h2>
+<p class="muted" style="margin-top:-0.4rem; max-width:70ch">
+  Moves each opponent made in the week they played the Pawnee Raccoons vs their
+  baseline in other weeks. <b>Ramp &gt; 1</b> means they got busier against you —
+  loading up, streaming, chasing categories. <a href="{{ url_for('collusion') }}">See the collusion lens →</a>
+</p>
+<div class="table-wrap" style="max-width:640px">
+<table class="stats">
+  <thead><tr><th class="txt">Opponent</th><th class="txt">Wk(s)</th><th class="num">Vs you</th><th class="num">Baseline</th><th class="num">Ramp</th></tr></thead>
+  <tbody>
+  {% for r in opp['rows'] %}
+    <tr>
+      <td class="txt name">{{ r['opp'] }}</td>
+      <td class="txt muted">{{ r['weeks']|join(', ') }}</td>
+      <td>{{ r['vs_avg'] if r['vs_avg'] is not none else '—' }}</td>
+      <td>{{ r['baseline'] }}</td>
+      <td class="{{ 'hl' if r['ramp'] and r['ramp'] >= 1.5 }}">{{ ('%.2f×'|format(r['ramp'])) if r['ramp'] else '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% if engagement %}
+<h2 class="section-head">Owner engagement</h2>
+<p class="muted" style="margin-top:-0.4rem">Total moves, when each manager was last active, and how long they'd gone quiet by the most recent transaction — a quick read on who's checked out.</p>
+<div class="table-wrap" style="max-width:560px">
+<table class="stats">
+  <thead><tr><th class="txt">Manager</th><th class="num">Moves</th><th class="txt">Last active</th><th class="num">Idle (days)</th></tr></thead>
+  <tbody>
+  {% for r in engagement %}
+    <tr>
+      <td class="txt name">{{ r['mgr'] }}</td>
+      <td class="hl">{{ r['moves'] }}</td>
+      <td class="txt">{{ r['last'] }}</td>
+      <td class="{{ 'cold-txt' if r['idle'] >= 21 }}">{{ r['idle'] }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h2 class="section-head">Activity over time</h2>
+<div class="timeline">
+  {% for d, n in a['timeline'] %}
+    <div class="tl-col" title="{{ d }}: {{ n }} moves">
+      <div class="tl-bar" style="height:{{ (n / a['max_day'] * 100)|round|int }}%"></div>
+      <div class="tl-lbl">{{ d[5:] }}</div>
+    </div>
+  {% endfor %}
+</div>
+
+<div class="two-col">
+<div>
+  <h2 class="section-head">Most active teams</h2>
+  <table class="stats">
+    <thead><tr><th class="txt">Team</th><th class="num">Adds</th><th class="num">Drops</th><th class="num">Trades</th><th class="num">Total</th></tr></thead>
+    <tbody>
+    {% for r in a['activity'] %}
+      <tr><td class="txt name">{{ r['team'] }}</td><td>{{ r['adds'] }}</td><td>{{ r['drops'] }}</td>
+      <td class="{{ 'hl' if r['trades'] }}">{{ r['trades'] }}</td><td class="hl">{{ r['total'] }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div>
+  <h2 class="section-head">Drop → add feeding</h2>
+  <p class="muted" style="margin-top:-0.3rem; font-size:0.8rem">How often a team scoops a player another just dropped.</p>
+  {% if a['feeding'] %}
+  <table class="stats">
+    <thead><tr><th class="txt">Picked up by</th><th class="txt">Dropped by</th><th class="num">#</th></tr></thead>
+    <tbody>
+    {% for f in a['feeding'] %}
+      <tr><td class="txt name">{{ f['adder'] }}</td><td class="txt">{{ f['dropper'] }}</td><td class="hl">{{ f['count'] }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No repeated drop→add pairs.</p>{% endif %}
+</div>
+</div>
+
+<h2 class="section-head">Trades <a href="{{ url_for('trades') }}" style="font-size:0.7rem; text-transform:none; letter-spacing:0">→ multi-factor breakdown (now vs. should-be)</a></h2>
+{% if a['trades'] %}
+<div class="trade-list">
+  {% for tr in a['trades'] %}
+  <div class="trade-card">
+    {% for s in tr['sides'] %}
+      <div class="trade-side">
+        <div class="ts-team">{{ s['team'] }} <span class="ts-val">~{{ s['value'] }}</span></div>
+        {% for p in s['players'] %}
+          <div class="ts-player">{{ p['name'] }}{% if p['line'] %}<span class="muted"> · {{ p['line'] }}</span>{% endif %}</div>
+        {% endfor %}
+      </div>
+      {% if not loop.last %}<div class="trade-swap">⇄{% if tr['value_gap'] %}<span class="tg">Δ{{ tr['value_gap'] }}</span>{% endif %}</div>{% endif %}
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}<p class="muted">No trades in the window.</p>{% endif %}
+
+<h2 class="section-head">Synchronized waiver timing</h2>
+<p class="muted" style="margin-top:-0.3rem; font-size:0.8rem">Pairs that transact within 30 minutes of each other most often (score = share of the quieter team's moves that coincide).</p>
+<table class="stats">
+  <thead><tr><th class="txt">Team A</th><th class="txt">Team B</th><th class="num">Together</th><th class="num">Score</th></tr></thead>
+  <tbody>
+  {% for t in a['timing'] %}
+    <tr><td class="txt">{{ t['a'] }}</td><td class="txt">{{ t['b'] }}</td><td>{{ t['co'] }}</td>
+    <td class="{{ 'hl' if t['score'] >= 0.4 }}">{{ t['score'] }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 class="section-head">Recent transactions</h2>
+<div class="feed">
+  {% for f in a['feed'] %}
+    <div class="feed-row"><span class="feed-when">{{ f['when'] }}</span>
+      <span class="feed-type ft-{{ f['type']|replace('/','') }}">{{ f['type'] }}</span>
+      <span class="feed-desc">{{ f['desc'] }}</span></div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
