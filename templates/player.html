@@ -21,6 +21,29 @@
   {% endif %}
 </div>
 
+{% if levels %}
+<section class="panel">
+  <h2>Category levels
+    <span class="muted">— {{ player_season }} · percentile vs qualified {{ level_pool }}</span>
+  </h2>
+  <div class="levels-wrap">
+    <div class="levels-chart"><canvas id="levelChart" height="300"></canvas></div>
+    <div class="levels-legend">
+      {% for c in levels %}
+      <div class="lvl-row tier-{{ c.cls }}">
+        <span class="lvl-cat">{{ c.label }}</span>
+        <span class="lvl-val">{{ c.value }}</span>
+        <div class="lvl-track"><div class="lvl-fill" style="width: {{ c.pct or 0 }}%"></div></div>
+        <span class="lvl-badge">
+          {% if c.pct is not none %}<span class="pct">{{ c.pct }}</span><sup>th</sup> · {% endif %}{{ c.tier }}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
 {% if (rolling and rolling|length > 1) or (overlay and overlay|length > 1) %}
 <section class="panel">
   <h2>Trends</h2>
@@ -156,10 +179,32 @@
 {% endblock %}
 
 {% block scripts %}
-{% if (rolling and rolling|length > 1) or (overlay and overlay|length > 1) %}
+{% if levels or (rolling and rolling|length > 1) or (overlay and overlay|length > 1) %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 const KIND = {{ kind|tojson }};
+
+const LV = {{ levels|tojson if levels else 'null' }};
+if (LV && document.getElementById('levelChart')) {
+  new Chart(document.getElementById('levelChart'), {
+    type: 'radar',
+    data: { labels: LV.map(c => c.label),
+      datasets: [{ label: 'Percentile', data: LV.map(c => c.pct ?? 0),
+        borderColor: '#f0883e', backgroundColor: '#f0883e33',
+        pointBackgroundColor: '#f0883e', borderWidth: 2, pointRadius: 3 }] },
+    options: {
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => {
+          const c = LV[ctx.dataIndex];
+          return `${c.label}: ${c.value} — ${c.pct ?? '—'}th pct (${c.tier})`;
+        } } } },
+      scales: { r: { min: 0, max: 100,
+        ticks: { stepSize: 25, color: '#8b949e', backdropColor: 'transparent' },
+        grid: { color: '#20262f' }, angleLines: { color: '#20262f' },
+        pointLabels: { color: '#e6edf3', font: { size: 13, weight: '600' } } } },
+      maintainAspectRatio: true }
+  });
+}
 const AX = { ticks: { color: '#8b949e' }, grid: { color: '#20262f' } };
 const baseOpts = (yTitle) => ({
   plugins: { legend: { display: true, labels: { color: '#8b949e' } } },

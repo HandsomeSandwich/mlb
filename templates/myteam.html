@@ -10,6 +10,33 @@
   {% if r['status'] %}<span class="il-tag">{{ r['status'] }}</span>{% endif %}
 {% endmacro %}
 
+{% macro lvlmatrix(players, cats) %}
+<table class="lvl-matrix">
+  <thead><tr><th class="name">Player</th>{% for c in cats %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for pl in players %}
+    <tr>
+      <td class="name">
+        {%- if pl.player_id -%}
+          <a href="{{ url_for('player', player_id=pl.player_id) }}?season={{ season }}">{{ pl.name }}</a>
+        {%- else -%}{{ pl.name }}{%- endif -%}
+        {% if pl.role %}<span class="muted" style="font-size:0.7rem"> {{ pl.role }}</span>{% endif %}
+      </td>
+      {% for cell in pl.cells %}
+      <td class="tier-{{ cell.cls }}">
+        <div class="lvl-cell">
+          <div class="bar"><i style="width: {{ cell.pct or 0 }}%"></i></div>
+          <span class="n">{{ cell.pct if cell.pct is not none else '—' }}</span>
+          <span class="v">{{ cell.value }}</span>
+        </div>
+      </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
 {% block content %}
 {% if not teams %}
   <div class="empty" style="padding:3rem 0">
@@ -48,6 +75,18 @@ python -m fantasybb.yahoo sync &lt;team_key&gt;</pre>
     <div><b>{{ ip_str((cats.ip * 3)|round|int) }}</b><span>IP</span></div>
   </div>
 </div>
+
+{% if levels and (levels.hitters or levels.pitchers) %}
+<h2 class="section-head">Category levels
+  <span class="muted">— percentile vs qualified {{ season }} pool (100 = elite)</span>
+</h2>
+{% if levels.hitters %}
+<div class="table-wrap">{{ lvlmatrix(levels.hitters, levels.bat_cats) }}</div>
+{% endif %}
+{% if levels.pitchers %}
+<div class="table-wrap" style="margin-top:0.8rem">{{ lvlmatrix(levels.pitchers, levels.pit_cats) }}</div>
+{% endif %}
+{% endif %}
 
 <h2 class="section-head">Hitters</h2>
 <div class="table-wrap">
