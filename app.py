@@ -339,6 +339,18 @@ def targets():
     )
 
 
+@app.route("/holddrop")
+def holddrop():
+    conn = get_db()
+    yr = selected_season(conn)
+    league_key = request.args.get("league") or Q.default_league(conn)
+    board = Q.hold_drop_board(conn, league_key, yr) if league_key else None
+    return render_template(
+        "holddrop.html", league_key=league_key, has_league=bool(league_key),
+        board=board, season=yr,
+    )
+
+
 @app.route("/trades")
 def trades():
     conn = get_db()
