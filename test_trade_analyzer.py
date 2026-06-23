@@ -69,9 +69,11 @@ conn.commit()
 
 from fantasybb import queries as Q  # noqa: E402
 
+SEASON = 2025  # the season the fixtures above are inserted under
+
 print("=== unit: pools ===")
-hmeta = Q.hitter_pool(conn)
-pmeta = Q.pitcher_pool(conn)
+hmeta = Q.hitter_pool(conn, SEASON)
+pmeta = Q.pitcher_pool(conn, SEASON)
 print(f"hitter pool n={hmeta['n']} lg_avg={hmeta['lg_avg']:.3f}")
 print(f"pitcher pool n={pmeta['n']} lg_era={pmeta['lg_era']:.2f} lg_whip={pmeta['lg_whip']:.2f}")
 assert hmeta["n"] >= 8 and pmeta["n"] >= 5
@@ -79,11 +81,11 @@ assert hmeta["n"] >= 8 and pmeta["n"] >= 5
 print("\n=== unit: name resolution ===")
 assert Q.parse_player_names("Soto, Soriano & Schmitt") == ["Soto", "Soriano", "Schmitt"]
 assert Q.parse_player_names("Tatis and Acuna") == ["Tatis", "Acuna"]
-assert Q.search_players(conn, "Soto")[0]["full_name"] == "Juan Soto"
+assert Q.search_players(conn, "Soto", SEASON)[0]["full_name"] == "Juan Soto"
 print("parse + search OK")
 
 print("\n=== integration: the disputed Soto trade ===")
-res = Q.evaluate_trade(conn, ["Juan Soto"], ["George Soriano", "Casey Schmitt"])
+res = Q.evaluate_text_trade(conn, ["Juan Soto"], ["George Soriano", "Casey Schmitt"], SEASON)
 print(f"Side A (Soto):            {res['a']['total']:+.2f}")
 print(f"Side B (Soriano+Schmitt): {res['b']['total']:+.2f}")
 print(f"verdict: {res['verdict']}  favors Side {res['winner']}  (delta {res['delta']:+.2f})")
@@ -92,13 +94,13 @@ assert res["a"]["total"] > res["b"]["total"]
 assert res["winner"] == "A"
 
 print("\n=== integration: Henderson+Arozarena vs Tatis+Acuna ===")
-res2 = Q.evaluate_trade(conn, ["Gunnar Henderson", "Randy Arozarena"],
-                        ["Fernando Tatis", "Ronald Acuna"])
+res2 = Q.evaluate_text_trade(conn, ["Gunnar Henderson", "Randy Arozarena"],
+                             ["Fernando Tatis", "Ronald Acuna"], SEASON)
 print(f"Side A: {res2['a']['total']:+.2f}   Side B: {res2['b']['total']:+.2f}")
 print(f"verdict: {res2['verdict']}")
 
 print("\n=== integration: two-way Ohtani gets hit + pitch value ===")
-oht = Q.evaluate_side(conn, ["Shohei Ohtani"], hmeta, pmeta)["players"][0]
+oht = Q.evaluate_side(conn, ["Shohei Ohtani"], SEASON, hmeta, pmeta)["players"][0]
 assert oht["hit"] is not None and oht["pit"] is not None, "Ohtani should have both"
 print(f"Ohtani total {oht['value']:+.2f} (hit {oht['hit']['total']:+.2f} + pit {oht['pit']['total']:+.2f})")
 
