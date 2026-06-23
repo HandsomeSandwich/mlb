@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 from flask import Flask, Response, g, render_template, request
 
 from fantasybb import db, queries as Q
+from fantasybb import cards
 
 app = Flask(__name__)
 
@@ -442,6 +443,18 @@ def trade():
     return render_template(
         "trade.html", a_raw=a_raw, b_raw=b_raw, result=result,
     )
+
+
+@app.route("/trade/card.svg")
+def trade_card():
+    conn = get_db()
+    yr = selected_season(conn)
+    a_names = Q.parse_player_names(request.args.get("a", ""))
+    b_names = Q.parse_player_names(request.args.get("b", ""))
+    if not (a_names or b_names):
+        return Response("no players", status=400)
+    result = Q.evaluate_text_trade(conn, a_names, b_names, yr)
+    return Response(cards.trade_card_svg(result, yr), mimetype="image/svg+xml")
 
 
 @app.route("/player/<int:player_id>")
