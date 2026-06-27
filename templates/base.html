@@ -17,7 +17,7 @@
                        ('holddrop','Hold/Drop'),
                        ('trade','Trade'), ('evaluate','Trade Calc'),
                        ('matchup','League'), ('transactions','Transactions'),
-                       ('handoffs','Handoffs'), ('collusion','Collusion')] %}
+                       ('handoffs','Handoffs')] %}
     {% for endpoint, label in navitems %}
       <a class="{{ 'active' if request.endpoint == endpoint }}" href="{{ url_for(endpoint) }}">{{ label }}</a>
     {% endfor %}
