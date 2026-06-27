@@ -310,21 +310,10 @@ def transactions():
 
 @app.route("/collusion")
 def collusion():
-    conn = get_db()
-    leagues = Q.league_keys(conn)
-    if not leagues:
-        return render_template("collusion.html", leagues=[], cv=None, meta=None)
-    league_key = request.args.get("league") or Q.default_league(conn)
-    focus = None
-    a, b = request.args.get("a"), request.args.get("b")
-    if a and b:
-        focus = [(a, b)]
-    meta, _ = Q.league_info(conn, league_key)
-    return render_template(
-        "collusion.html", leagues=leagues, league_key=league_key, meta=meta,
-        cv=Q.collusion_view(conn, league_key, focus),
-        vscom=Q.vs_commissioner_pitching(conn, league_key),
-    )
+    # Hidden: the collusion lens is intentionally disabled so it can't be
+    # reached, even by direct URL. Re-enable by restoring the handler below
+    # (still backed by Q.collusion_view / behavior.collusion_lens).
+    return render_template("not_found.html"), 404
 
 
 @app.route("/targets")
