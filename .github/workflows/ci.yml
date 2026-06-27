@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The test suite only needs Flask + the stdlib (sqlite3). pandas/pybaseball
+      # are lazy-imported in the ingest path, which the tests don't exercise, so
+      # we skip them here to keep CI fast and avoid heavy/flaky installs.
+      - run: pip install "flask>=3.0"
+      - name: Run tests
+        run: |
+          python tests/test_levels.py
+          python test_trade_analyzer.py
+          python test_hold_drop.py
+          python test_trade_card.py

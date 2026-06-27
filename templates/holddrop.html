@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Hold / Drop{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Hold / Drop</h1>
+
+{% if not has_league %}
+  <p class="muted">Sync a league first: <code>python -m fantasybb.league refresh</code></p>
+{% elif not board %}
+  <p class="muted">No synced team found for this league. Sync your roster with
+    <code>python -m fantasybb.yahoo sync &lt;team_key&gt;</code>.</p>
+{% else %}
+
+<p class="muted" style="margin-top:-0.4rem; max-width:92ch">
+  Every player you roster, graded on the same category rating the trade tools use
+  (<b>50 = average regular, +15 per SD</b>). The bar each must clear is his
+  position's <b>replacement level</b> — the marginal rostered player at that spot
+  ({{ board['n_teams'] }} teams deep), i.e. the best the waiver wire can offer.
+  A free agent has to beat your guy by the <b>{{ board['buffer'] }}-pt buffer</b>
+  to flag an upgrade (wider when he's unlucky/heating up — don't sell low). Below
+  replacement → <span class="utag down">drop</span>; a wire option clears the
+  buffer → <span class="utag young">upgrade</span>; {{ board['keeper'] }}+ or no
+  better option → <span class="utag">hold</span>.
+</p>
+
+{% if not board['fa_loaded'] %}
+  <p class="muted">⚠️ Free-agent pool isn't loaded, so only the replacement-level
+    bar is applied (no specific wire upgrades). Load it with
+    <code>python -m fantasybb.streaming refresh</code>.</p>
+{% endif %}
+
+{% set c = board['counts'] %}
+<p class="hd-summary">
+  <span class="utag down">{{ c['drop'] }} drop</span>
+  <span class="utag young">{{ c['upgrade'] }} upgrade</span>
+  <span class="utag old">{{ c['stash'] }} stash</span>
+  <span class="utag">{{ c['hold'] }} hold</span>
+  {% if c['unknown'] %}<span class="utag">{{ c['unknown'] }} unrated</span>{% endif %}
+</p>
+
+<div class="table-wrap">
+<table class="stats">
+  <thead>
+    <tr>
+      <th class="txt">Player</th>
+      <th class="txt">Pos</th>
+      <th>Rating</th>
+      <th>Repl</th>
+      <th class="txt">Verdict</th>
+      <th class="txt">Best available (his spot)</th>
+      <th class="txt">Why</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in board['rows'] %}
+    {% set vclass = {'drop':'down','upgrade':'young','stash':'old'}.get(r['verdict'],'') %}
+    <tr>
+      <td class="txt name">
+        {%- if r['pid'] -%}
+          <a href="{{ url_for('player', player_id=r['pid']) }}?season={{ season }}">{{ r['name'] }}</a>
+        {%- else -%}<span class="unmatched">{{ r['name'] }}</span>{%- endif -%}
+        {% if r['status'] %}<span class="il-tag">{{ r['status'] }}</span>{% endif %}
+        {% if r['churn'] %}<span class="churn-tag" title="You've had him before: added {{ r['churn']['adds'] }}×, dropped {{ r['churn']['drops'] }}× (held {{ r['churn']['held_days'] }}d, last dropped {{ r['churn']['last_drop'] }})">🔁</span>{% endif %}
+      </td>
+      <td class="txt muted">{{ r['pos'] or '—' }}</td>
+      <td class="hl">{{ r['rating'] if r['rating'] is not none else '—' }}</td>
+      <td class="muted">{{ r['repl'] if r['repl'] is not none else '—' }}</td>
+      <td class="txt">
+        <span class="utag {{ vclass }}">{{ r['verdict'] }}</span>
+        {% if r['edge'] is not none and r['verdict'] in ('upgrade','drop') %}<span class="muted">{{ '%+.0f'|format(r['edge']) }}</span>{% endif %}
+      </td>
+      <td class="txt">
+        {% if r['wire'] %}
+          <a href="{{ url_for('player', player_id=r['wire']['pid']) }}?season={{ season }}">{{ r['wire']['name'] }}</a>
+          <span class="muted">({{ r['wire']['rating'] }}{% if r['wire']['grade'] and r['wire']['grade'] not in ('—', None) %} · {{ r['wire']['grade'] }}{% endif %})</span>
+          {% if r['wire']['prod'] %}<div class="muted" style="font-size:0.78rem">{{ r['wire']['prod'] }}</div>{% endif %}
+        {% else %}<span class="muted">—</span>{% endif %}
+      </td>
+      <td class="txt">
+        <div>{{ r['reason'] }}</div>
+        <div class="hd-flags">
+          {% if r['prod'] %}<span class="muted" style="font-size:0.78rem">{{ r['prod'] }}</span>{% endif %}
+          {% if r['form'] and r['form'] != '→' %}<span class="utag {{ 'up' if r['form']=='▲' else 'down' }}" title="recent form vs season">{{ r['form'] }}</span>{% endif %}
+          {% if r['luck_dir'] == 1 %}<span class="utag up" title="{{ r['luck_txt'] }}">due ↑</span>{% elif r['luck_dir'] == -1 %}<span class="utag down" title="{{ r['luck_txt'] }}">due ↓</span>{% endif %}
+        </div>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted txt">No rostered players to evaluate.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<p class="muted" style="margin-top:0.8rem; max-width:92ch">
+  Verdicts are decision support, not autopilot: a <b>stash</b> is only a hold if
+  you have an IL slot, an <b>upgrade</b> assumes you can use the free agent's
+  position, and a 🔁 flags a player you've churned before. Rate stats over small
+  windows are noisy — pair this with the player page before pulling the trigger.
+</p>
+
+{% endif %}
+{% endblock %}

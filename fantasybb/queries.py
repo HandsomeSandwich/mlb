@@ -2142,6 +2142,165 @@ def upgrade_targets(conn, league_key, season, per_cat=5):
     return out
 
 
+# --- Hold / drop / upgrade board ------------------------------------------
+# For every player I roster: keep him, or would I be better off dropping him for
+# the best free agent who plays his position? Each rostered player AND each free
+# agent is scored on the SAME category rating the trade tools use (50 = average
+# regular, +15 per SD). The bar to clear is the position's REPLACEMENT level —
+# the rating of the marginal rostered player at that spot (depth = teams × slots)
+# — which is exactly "the best the waiver wire can offer" and bakes in scarcity:
+# a scarce spot's replacement is lower, so you hold its players longer. A wire
+# option must beat my guy by a BUFFER to trigger a swap (so we don't churn on
+# noise); the buffer widens for an unlucky/improving hold — don't sell low — and
+# shrinks for a lucky/fading one.
+_HD_KEEPER = 50.0    # rating at/above which a player is a clear hold
+_HD_BUFFER = 4.0     # rating points a free agent must beat my guy by to upgrade
+_HD_LUCK_ADJ = 2.0   # buffer widens (due-up) / shrinks (due-down) by this much
+_HD_STASH = {"IL", "IL10", "IL15", "IL60", "NA"}
+_HD_PRIO = {"drop": 5, "upgrade": 4, "stash": 3, "unknown": 2, "hold": 1}
+
+
+def _hd_rating(conn, pid, kind, season, base_map, pos_norm):
+    """A player's category rating (50 + 15·z), falling back to the position-
+    normalized heuristic when he's below the qualifying sample. None if he can't
+    be valued at all."""
+    hit = base_map.get(pid)
+    if hit:
+        return hit[0]
+    pf = player_factors(conn, pid, season)
+    if pf.get("kind") and not pf.get("thin"):
+        return _tv(pf.get("value_now"), pf["kind"], pos_norm)
+    return None
+
+
+def hold_drop_board(conn, league_key, season):
+    """Per-roster hold / drop / upgrade verdicts vs the waiver wire. None if no
+    synced team. Each of my players is graded against his position's replacement
+    level and the best available free agent at that spot."""
+    my_key = _my_team_key(conn, league_key) if league_key else None
+    if not my_key:
+        return None
+    dists = _cat_rating_dists(conn, season)
+    weights = _cat_need_weights(conn, league_key)
+    n_teams = conn.execute("SELECT COUNT(*) FROM league_teams WHERE league_key=?",
+                           (league_key,)).fetchone()[0] or 12
+    pos_norm = _pos_norm(conn, season)
+
+    # One bulk rating pass per side, reused for my players, FAs, and replacement.
+    base_map, repl = {}, {}
+    for group, floor in (("bat", 100), ("pit", 60)):
+        ratings = _bulk_ratings(conn, season, dists, weights, group, floor)
+        base_map.update(ratings)
+        by_bucket = defaultdict(list)
+        for _pid, (rt, bucket) in ratings.items():
+            by_bucket[bucket].append(rt)
+        for bucket, rts in by_bucket.items():
+            rts.sort(reverse=True)
+            depth = max(1, n_teams * _POS_SLOTS.get(bucket, 1))
+            repl[bucket] = rts[min(depth, len(rts)) - 1]
+
+    kind_cache = {}
+
+    def kind_of(pid):
+        if pid not in kind_cache:
+            row = conn.execute("SELECT position FROM players WHERE player_id=?", (pid,)).fetchone()
+            kind_cache[pid] = "pit" if (row and row["position"] == "P") else "bat"
+        return kind_cache[pid]
+
+    # Best available free agent per position bucket.
+    best_fa = {}
+    for r in conn.execute(
+            "SELECT av.player_id, p.full_name FROM availability av "
+            "JOIN players p ON p.player_id = av.player_id "
+            "WHERE av.league_key=? AND av.player_id IS NOT NULL", (league_key,)):
+        pid, kind = r["player_id"], kind_of(r["player_id"])
+        bucket = _player_bucket(conn, pid, kind, season)
+        if not bucket:
+            continue
+        rt = _hd_rating(conn, pid, kind, season, base_map, pos_norm)
+        if rt is None:
+            continue
+        cur = best_fa.get(bucket)
+        if cur is None or rt > cur["rating"]:
+            best_fa[bucket] = {"pid": pid, "name": r["full_name"], "rating": rt}
+
+    churn = churn_history(conn, league_key)["by_pid"]
+    fa_pf = {}   # cache player_factors for the surfaced FAs (one per used bucket)
+    rows = []
+    for r in conn.execute(
+            "SELECT fr.player_id, fr.yahoo_name, fr.selected_position, fr.status, p.full_name "
+            "FROM fantasy_roster fr LEFT JOIN players p ON p.player_id = fr.player_id "
+            "WHERE fr.team_key=?", (my_key,)):
+        pid = r["player_id"]
+        name = r["full_name"] or r["yahoo_name"]
+        status = (r["status"] or "").upper()
+        pos = r["selected_position"]
+        if not pid:
+            rows.append({"pid": None, "name": name, "pos": pos, "bucket": None,
+                         "status": status, "rating": None, "repl": None, "prod": None,
+                         "form": None, "luck_dir": 0, "luck_txt": None, "grade": None,
+                         "wire": None, "edge": None, "verdict": "unknown",
+                         "reason": "not matched to a stats line — can't value", "churn": None})
+            continue
+        kind = kind_of(pid)
+        bucket = _player_bucket(conn, pid, kind, season)
+        pf = player_factors(conn, pid, season)
+        mine = _hd_rating(conn, pid, kind, season, base_map, pos_norm)
+        R = repl.get(bucket)
+        wire = best_fa.get(bucket)
+        if wire and wire["pid"] == pid:   # he's wrongly listed as available too
+            wire = None
+        edge = round(wire["rating"] - mine, 1) if (wire and mine is not None) else None
+
+        buf = _HD_BUFFER
+        if pf.get("luck_dir", 0) > 0 or pf.get("form") == "▲":
+            buf += _HD_LUCK_ADJ
+        if pf.get("luck_dir", 0) < 0 or pf.get("form") == "▼":
+            buf -= _HD_LUCK_ADJ
+
+        if mine is None:
+            verdict, reason = "unknown", "not enough data to value him yet"
+        elif status in _HD_STASH:
+            verdict, reason = "stash", "injured — stash if you have an IL slot, else a drop candidate"
+        elif R is not None and mine < R:
+            verdict = "drop"
+            reason = f"below replacement at {bucket} ({mine} vs {round(R, 1)})"
+        elif mine >= _HD_KEEPER:
+            verdict, reason = "hold", "startable asset — clear keeper"
+        elif wire and edge is not None and edge >= buf:
+            verdict = "upgrade"
+            reason = f"{wire['name']} grades {edge:+.0f} higher (clears the {round(buf, 1)} buffer)"
+        else:
+            verdict = "hold"
+            reason = "roster-worthy depth — no wire option clears the buffer"
+
+        wire_out = None
+        if wire and verdict in ("upgrade", "drop"):
+            wpf = fa_pf.get(wire["pid"])
+            if wpf is None:
+                wpf = fa_pf[wire["pid"]] = player_factors(conn, wire["pid"], season)
+            wire_out = {"pid": wire["pid"], "name": wire["name"], "rating": wire["rating"],
+                        "prod": wpf.get("prod"), "grade": wpf.get("grade")}
+
+        rows.append({
+            "pid": pid, "name": name, "pos": pos, "bucket": bucket, "status": status,
+            "rating": mine, "repl": round(R, 1) if R is not None else None,
+            "prod": pf.get("prod"), "form": pf.get("form"), "luck_dir": pf.get("luck_dir", 0),
+            "luck_txt": pf.get("luck_txt"), "grade": pf.get("grade"),
+            "wire": wire_out, "edge": edge, "verdict": verdict, "reason": reason,
+            "churn": churn.get(pid),
+        })
+
+    rows.sort(key=lambda x: (_HD_PRIO.get(x["verdict"], 0),
+                             x["edge"] if x["edge"] is not None else -99), reverse=True)
+    counts = {v: sum(1 for x in rows if x["verdict"] == v)
+              for v in ("drop", "upgrade", "stash", "hold", "unknown")}
+    fa_loaded = bool(conn.execute(
+        "SELECT 1 FROM availability WHERE league_key=? LIMIT 1", (league_key,)).fetchone())
+    return {"rows": rows, "counts": counts, "buffer": _HD_BUFFER, "keeper": _HD_KEEPER,
+            "n_teams": n_teams, "fa_loaded": fa_loaded}
+
+
 def buy_sell(conn, season, min_pa=150, limit=12):
     """Expected AVG vs actual AVG: who's been unlucky (buy) vs lucky (sell).
 

@@ -103,6 +103,16 @@ are illustrative, not an official feed — use the real ingest for accuracy.
   color-graded by OPS/ERA, to spot when they run hot or cold each year.
 * **My Team** — your synced Yahoo roster with season stats, Statcast, IL tags,
   and a 5×5 category snapshot.
+* **Hold / Drop** — a keep-or-cut verdict for every player you roster. Each is
+  scored on the same category rating the trade tools use (50 = average regular,
+  +15 per SD) and measured against his position's **replacement level** — the
+  marginal rostered player at that spot (teams × slots deep), i.e. the best the
+  waiver wire can offer (this bakes in scarcity: a scarce spot's replacement is
+  lower, so you hold its players longer). Below replacement → **drop**; the best
+  available free agent at his spot clears a **buffer** → **upgrade** (the buffer
+  widens for an unlucky/heating-up hold so you don't sell low); 50+ or no better
+  option → **hold**; injured → **stash**. Needs the free-agent pool
+  (`python -m fantasybb.streaming refresh`).
 * **League** — your current H2H matchup category-by-category vs your opponent,
   where you rank in every scoring category, and a **"who beat you, and how"**
   season history (per week: opponent + manager, result, categories lost).
