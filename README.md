@@ -171,6 +171,19 @@ ngrok http 5000
 > tunnel from a machine with open egress. For an always-on URL, deploy the app
 > (any host that runs a Flask/WSGI app) and point your phone at it.
 
+## Also in here: GIF Maker
+
+`gifmaker/` is a separate, self-contained phone app for making animated GIFs
+from your photos — image search, Word-style text formatting, and a GIF encoder
+written from scratch so it runs entirely in the browser. It shares nothing with
+the baseball code.
+
+```bash
+python3 gifmaker/serve.py      # then open the printed address on your phone
+```
+
+See [gifmaker/README.md](gifmaker/README.md).
+
 ## Layout
 
 ```
