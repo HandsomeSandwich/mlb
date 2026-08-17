@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GIF Maker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="description" content="Make animated GIFs from your photos, with captions.">
+<meta name="theme-color" content="#12121a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GIF Maker">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>GIF Maker</h1>
+  <div class="topbar-actions">
+    <button type="button" id="btn-settings" class="icon-btn" aria-label="Settings">⚙</button>
+    <button type="button" id="btn-make" class="primary">Make GIF</button>
+  </div>
+</header>
+
+<main>
+  <!-- ------------------------------------------------------------- stage -->
+  <section class="stage" aria-label="Preview">
+    <div class="stage-wrap">
+      <canvas id="stage" width="480" height="480"></canvas>
+      <p id="stage-empty" class="stage-empty">
+        Add a few pictures to get started.
+      </p>
+    </div>
+    <div class="stage-bar">
+      <button type="button" id="btn-prev" class="icon-btn" aria-label="Previous frame">‹</button>
+      <button type="button" id="btn-play" class="icon-btn play" aria-label="Play preview">▶</button>
+      <button type="button" id="btn-next" class="icon-btn" aria-label="Next frame">›</button>
+      <span id="frame-count" class="frame-count">No frames</span>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------- filmstrip -->
+  <section class="filmstrip" aria-label="Frames">
+    <div id="strip" class="strip"></div>
+    <div class="strip-add">
+      <button type="button" id="btn-add-photos" class="chip">📷 Photos</button>
+      <button type="button" id="btn-add-search" class="chip">🔍 Search</button>
+    </div>
+    <input type="file" id="file-input" accept="image/*" multiple hidden>
+  </section>
+
+  <!-- ---------------------------------------------------------- tab bar -->
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab is-active" data-tab="text" role="tab">Text</button>
+    <button type="button" class="tab" data-tab="frames" role="tab">Frames</button>
+    <button type="button" class="tab" data-tab="canvas" role="tab">Canvas</button>
+    <button type="button" class="tab" data-tab="speed" role="tab">Speed</button>
+  </nav>
+
+  <div class="panels">
+
+    <!-- ============================================================ TEXT -->
+    <section class="panel is-active" data-panel="text">
+      <div id="text-empty" class="empty-note">
+        <p>No text yet.</p>
+        <button type="button" id="btn-add-text" class="primary wide">Add text</button>
+      </div>
+
+      <div id="text-editor" hidden>
+        <div class="row">
+          <label class="field grow">
+            <span>Text</span>
+            <textarea id="t-text" rows="2" placeholder="Type your caption…"></textarea>
+          </label>
+        </div>
+
+        <!-- The Word-style formatting bar -->
+        <div class="toolbar" role="toolbar" aria-label="Text formatting">
+          <button type="button" class="fmt" data-fmt="bold" aria-label="Bold"><b>B</b></button>
+          <button type="button" class="fmt" data-fmt="italic" aria-label="Italic"><i>I</i></button>
+          <button type="button" class="fmt" data-fmt="underline" aria-label="Underline"><u>U</u></button>
+          <span class="sep"></span>
+          <button type="button" class="fmt" data-align="left" aria-label="Align left">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="2" y="3" width="16" height="2" rx="1"/>
+              <rect x="2" y="9" width="10" height="2" rx="1"/>
+              <rect x="2" y="15" width="14" height="2" rx="1"/>
+            </svg>
+          </button>
+          <button type="button" class="fmt" data-align="center" aria-label="Align centre">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="2" y="3" width="16" height="2" rx="1"/>
+              <rect x="5" y="9" width="10" height="2" rx="1"/>
+              <rect x="3" y="15" width="14" height="2" rx="1"/>
+            </svg>
+          </button>
+          <button type="button" class="fmt" data-align="right" aria-label="Align right">
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="2" y="3" width="16" height="2" rx="1"/>
+              <rect x="8" y="9" width="10" height="2" rx="1"/>
+              <rect x="4" y="15" width="14" height="2" rx="1"/>
+            </svg>
+          </button>
+          <span class="sep"></span>
+          <button type="button" class="fmt" data-fmt="uppercase" aria-label="All caps">AA</button>
+        </div>
+
+        <div class="row">
+          <label class="field grow">
+            <span>Font</span>
+            <select id="t-family">
+              <option value="impact">Impact (meme)</option>
+              <option value="sans">Sans serif</option>
+              <option value="serif">Serif</option>
+              <option value="rounded">Rounded</option>
+              <option value="mono">Monospace</option>
+              <option value="comic">Comic</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="field grow">
+            <span>Size <output id="t-size-out"></output></span>
+            <input type="range" id="t-size" min="2" max="30" step="0.5">
+          </label>
+        </div>
+
+        <div class="row colors">
+          <label class="field">
+            <span>Text</span>
+            <input type="color" id="t-color">
+          </label>
+          <label class="field">
+            <span>Outline</span>
+            <input type="color" id="t-outline">
+          </label>
+          <label class="field">
+            <span>Highlight</span>
+            <input type="color" id="t-highlight">
+          </label>
+          <label class="field check">
+            <input type="checkbox" id="t-highlight-on">
+            <span>Use it</span>
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="field grow">
+            <span>Outline width <output id="t-outline-w-out"></output></span>
+            <input type="range" id="t-outline-w" min="0" max="30" step="1">
+          </label>
+        </div>
+
+        <details class="more">
+          <summary>More options</summary>
+          <div class="row">
+            <label class="field grow">
+              <span>Line spacing <output id="t-lh-out"></output></span>
+              <input type="range" id="t-lh" min="80" max="200" step="5">
+            </label>
+          </div>
+          <div class="row">
+            <label class="field grow">
+              <span>Rotation <output id="t-rot-out"></output></span>
+              <input type="range" id="t-rot" min="-45" max="45" step="1">
+            </label>
+          </div>
+          <div class="row">
+            <label class="field grow">
+              <span>Opacity <output id="t-opacity-out"></output></span>
+              <input type="range" id="t-opacity" min="10" max="100" step="5">
+            </label>
+          </div>
+          <div class="row">
+            <label class="field check">
+              <input type="checkbox" id="t-shadow">
+              <span>Drop shadow</span>
+            </label>
+          </div>
+        </details>
+
+        <div class="row">
+          <label class="field grow">
+            <span>Show on</span>
+            <select id="t-scope">
+              <option value="all">Every frame</option>
+            </select>
+          </label>
+        </div>
+
+        <p class="hint">Drag the text on the picture above to move it.</p>
+
+        <div class="row btns">
+          <button type="button" id="btn-text-dup" class="ghost">Duplicate</button>
+          <button type="button" id="btn-text-del" class="danger">Delete</button>
+          <button type="button" id="btn-text-new" class="primary">Add another</button>
+        </div>
+
+        <ul id="layer-list" class="layer-list"></ul>
+      </div>
+    </section>
+
+    <!-- ========================================================== FRAMES -->
+    <section class="panel" data-panel="frames">
+      <div id="frames-empty" class="empty-note"><p>No frames yet.</p></div>
+      <div id="frames-editor" hidden>
+        <p class="hint">Frame <output id="f-index"></output></p>
+        <div class="row">
+          <label class="field grow">
+            <span>This frame's time <output id="f-delay-out"></output></span>
+            <input type="range" id="f-delay" min="40" max="2000" step="20">
+          </label>
+        </div>
+        <div class="row btns wrap">
+          <button type="button" id="btn-frame-left" class="ghost">◀ Move</button>
+          <button type="button" id="btn-frame-right" class="ghost">Move ▶</button>
+          <button type="button" id="btn-frame-dup" class="ghost">Duplicate</button>
+          <button type="button" id="btn-frame-del" class="danger">Delete</button>
+        </div>
+        <div class="row btns wrap">
+          <button type="button" id="btn-frames-reverse" class="ghost">Reverse order</button>
+          <button type="button" id="btn-frames-bounce" class="ghost">Add bounce</button>
+          <button type="button" id="btn-frames-clear" class="danger">Remove all</button>
+        </div>
+        <p class="hint">
+          “Add bounce” replays the frames backwards so the loop returns to where
+          it started.
+        </p>
+      </div>
+    </section>
+
+    <!-- ========================================================== CANVAS -->
+    <section class="panel" data-panel="canvas">
+      <div class="row">
+        <label class="field grow">
+          <span>Shape</span>
+          <select id="c-aspect">
+            <option value="1:1">Square</option>
+            <option value="4:5">Portrait 4:5</option>
+            <option value="9:16">Tall 9:16</option>
+            <option value="4:3">Landscape 4:3</option>
+            <option value="16:9">Wide 16:9</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="field grow">
+          <span>Size <output id="c-size-out"></output></span>
+          <input type="range" id="c-size" min="160" max="720" step="20">
+        </label>
+      </div>
+      <div class="row">
+        <label class="field grow">
+          <span>Fit pictures</span>
+          <select id="c-fit">
+            <option value="cover">Fill the frame (crop)</option>
+            <option value="contain">Show all of it (letterbox)</option>
+          </select>
+        </label>
+      </div>
+      <div class="row colors">
+        <label class="field">
+          <span>Background</span>
+          <input type="color" id="c-bg">
+        </label>
+      </div>
+      <div class="row">
+        <label class="field grow">
+          <span>Colours <output id="c-colors-out"></output></span>
+          <input type="range" id="c-colors" min="16" max="256" step="8">
+        </label>
+      </div>
+      <div class="row">
+        <label class="field check">
+          <input type="checkbox" id="c-dither">
+          <span>Smooth colour blending (dither)</span>
+        </label>
+      </div>
+      <p class="hint">
+        Fewer colours and a smaller size make a smaller file — handy if you want
+        to send it in a message.
+      </p>
+    </section>
+
+    <!-- =========================================================== SPEED -->
+    <section class="panel" data-panel="speed">
+      <div class="row">
+        <label class="field grow">
+          <span>Time per frame <output id="s-delay-out"></output></span>
+          <input type="range" id="s-delay" min="40" max="2000" step="20">
+        </label>
+      </div>
+      <div class="row">
+        <button type="button" id="btn-apply-delay" class="primary wide">
+          Apply to every frame
+        </button>
+      </div>
+      <div class="row">
+        <label class="field check">
+          <input type="checkbox" id="s-loop" checked>
+          <span>Loop forever</span>
+        </label>
+      </div>
+      <p class="hint">
+        Most apps won't play a GIF faster than about 20ms per frame, so that's
+        the floor.
+      </p>
+    </section>
+  </div>
+</main>
+
+<!-- ================================================================ SHEETS -->
+
+<div class="sheet" id="sheet-search" hidden>
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <h2>Find pictures</h2>
+      <button type="button" class="icon-btn sheet-close" aria-label="Close">✕</button>
+    </div>
+    <form id="search-form" class="search-form">
+      <input type="search" id="search-q" placeholder="Search for pictures…"
+             autocomplete="off" enterkeyhint="search">
+      <button type="submit" class="primary">Go</button>
+    </form>
+    <div class="provider-row" id="provider-row"></div>
+    <p class="search-status" id="search-status"></p>
+    <div class="results" id="search-results"></div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet-export" hidden>
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <h2>Your GIF</h2>
+      <button type="button" class="icon-btn sheet-close" aria-label="Close">✕</button>
+    </div>
+    <div class="export-body">
+      <div id="export-progress" class="progress" hidden>
+        <div class="progress-bar"><span id="progress-fill"></span></div>
+        <p id="progress-text">Encoding…</p>
+      </div>
+      <div id="export-result" hidden>
+        <img id="export-img" alt="The GIF you just made">
+        <p id="export-meta" class="export-meta"></p>
+        <div class="row btns wrap">
+          <a id="export-download" class="btn primary" download="animation.gif">Save to device</a>
+          <button type="button" id="export-share" class="ghost" hidden>Share…</button>
+        </div>
+        <p class="hint" id="export-hint"></p>
+      </div>
+      <p id="export-error" class="error" hidden></p>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet-settings" hidden>
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button type="button" class="icon-btn sheet-close" aria-label="Close">✕</button>
+    </div>
+    <div class="settings-body">
+      <h3>Search keys</h3>
+      <p class="hint">
+        Wikimedia and Openverse need nothing. A Pexels key (free from
+        pexels.com/api) adds stock photography. Keys stay on this device.
+      </p>
+      <label class="field grow">
+        <span>Pexels API key</span>
+        <input type="password" id="key-pexels" autocomplete="off" placeholder="Paste key">
+      </label>
+      <div class="row btns">
+        <button type="button" id="btn-save-keys" class="primary">Save keys</button>
+      </div>
+
+      <h3>This project</h3>
+      <p class="hint" id="storage-note"></p>
+      <div class="row btns">
+        <button type="button" id="btn-reset" class="danger">Start over</button>
+      </div>
+
+      <h3>Install</h3>
+      <p class="hint">
+        On iPhone: Share → “Add to Home Screen”. On Android: menu → “Install app”.
+        It then opens full screen and works without a connection (search still
+        needs one).
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="gif-encoder.js"></script>
+<script src="search.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

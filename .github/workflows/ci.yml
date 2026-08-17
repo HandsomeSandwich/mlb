@@ -23,3 +23,7 @@ jobs:
           python test_trade_analyzer.py
           python test_hold_drop.py
           python test_trade_card.py
+          # Runs the GIF maker's JavaScript encoder under node (preinstalled on
+          # ubuntu-latest) and decodes the result in Python. Skips itself if
+          # node ever goes missing.
+          python test_gif_encoder.py
